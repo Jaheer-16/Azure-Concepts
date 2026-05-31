@@ -1,0 +1,65 @@
+“Delta tables are the foundation of the Databricks Lakehouse. They extend Parquet with ACID transactions, schema enforcement, and time travel, which means you can treat data in your data lake almost like a database.
+
+There are two types of Delta tables: managed and external. A managed table is created with saveAsTable or CREATE TABLE … USING DELTA without specifying a location. In that case, Databricks decides where to store the files in ADLS Gen2 and dropping the table deletes both metadata and the files. An external table is created with a LOCATION clause pointing to a folder in ADLS — for example, your Bronze, Silver, or Gold layers. Dropping an external table only removes metadata; the files remain in ADLS.
+
+Another key difference is schema handling. For CSV or JSON, you must define the schema manually because those formats don’t store metadata. But Delta tables automatically track schema in the _delta_log, so you don’t need to define it explicitly.
+
+Operationally, Delta tables support full SQL DML — you can run UPDATE, DELETE, and MERGE INTO statements, which is not possible with plain Parquet or CSV. They also support time travel, so you can query older versions of the data for auditing or rollback.
+
+In practice, teams use Delta tables to build reliable pipelines: Bronze for raw ingestion, Silver for cleaned data, and Gold for curated aggregates. Managed tables are often used for curated datasets where Databricks controls lifecycle, while external tables are used when you want to manage ADLS paths directly.
+
+Overall, Delta tables combine the scalability of a data lake with the reliability of a data warehouse, making them central to modern data engineering workflows.”
+
+Delta Lake alone → storage + reliability (transaction log, history, ACID).
+
+Delta Lake + Unity Catalog → adds governance (lineage, masking, compliance).
+
+delta table features:
+
+1-Versioning:-
+Every write (INSERT, UPDATE, DELETE, MERGE) creates a new JSON commit file.
+SELECT * FROM employee VERSION AS OF 3;
+
+2-Time Travel
+Because all versions are stored in the log, you can “travel back” to older states.
+SELECT * FROM employee TIMESTAMP AS OF '2026-05-30';
+Useful for debugging, auditing, or restoring old data.
+
+3-History
+The log records operation type, user, timestamp, schema changes.
+DESCRIBE HISTORY employee;
+This shows:
+Operation (WRITE, MERGE, DELETE, etc.)
+Who ran it
+When it happened
+Table version
+
+
+ Unity Catalog Features (On Top of That)
+When you enable UC, you get enterprise governance features layered over Delta:
+Centralized Access Control (RBAC)
+Fine‑grained permissions at catalog → schema → table → column → row level.
+Example: restrict HR team to only see salary column with masking.
+Row-Level Security & Masking
+Apply policies so certain users see masked or filtered data.
+Example:
+sql
+ALTER TABLE employee ALTER COLUMN salary 
+SET MASKING POLICY mask_salary;
+Lineage Tracking
+
+Automatic visualization of how data flows from source → transformations → reports.
+Helps with debugging, compliance, and impact analysis.
+Audit & Governance
+Logs every access and change for compliance (GDPR, HIPAA, etc.).
+Easier to prove “who saw what, when.”
+Cross-Workspace Sharing
+UC allows secure data sharing across multiple Databricks workspaces.
+Without UC, each workspace is siloed.
+
+
+Delta Lake transaction log = reliability (versioning, time travel, history).
+
+Unity Catalog = governance (lineage, masking, RBAC, audit).
+
+Together, they give you both data reliability + enterprise‑grade security/compliance.
