@@ -1,0 +1,29 @@
+ACCESS ADLSGEN2 THROUGH DATABRICKS
+Step 1: App Registration in Microsoft Entra ID
+Application (Client) ID
+Directory (Tenant) ID
+Object ID (not usually required in Databricks code)
+
+Step 2: Create Client Secret
+
+Step 3: Assign Role in ADLS Gen2
+Storage Account → Access Control (IAM)
+
+Step 4: Access from Databricks (OAuth with ABFS)
+
+"To access ADLS Gen2 from Databricks using a service principal, first we create an app registration in Microsoft Entra ID, where we get the client ID and tenant ID. Then we create a client secret. After that, we assign the 'Storage Blob Data Contributor' role to the service principal in the ADLS Gen2 storage account IAM. Finally, we configure OAuth settings in Databricks using the ABFS connector and access or mount the storage."
+
+To access ADLS Gen2 using Managed Identity in Databricks, first we enable the managed identity on the Databricks workspace and assign the 'Storage Blob Data Contributor' role in the storage account. Then, in Unity Catalog, we create a storage credential using managed identity, define an external location pointing to ADLS, grant permissions, and create Delta tables. This approach is secure and eliminates the need for secrets
+
+“Service Principal is a manual approach where we manage client ID and secret (keys), whereas Azure Databricks Access Connector uses Managed Identity, so there is no need to maintain any secrets.”
+
+Service Principal is used when external systems like ADF, CI/CD pipelines, or cross-platform integrations need access to ADLS, as they require credential-based authentication. Managed Identity, especially via Azure Databricks Access Connector, is used in modern Databricks environments with Unity Catalog for secure and seamless access without managing secrets. It is the preferred approach for internal workloads and enterprise-grade data platforms.
+
+“Service Principal is preferred when external systems are involved, whereas if the entire setup is within Azure (especially Databricks with Unity Catalog), Managed Identity is the best choice.”
+
+To configure cross-tenant access in ADF, we create a Service Principal using App Registration in Microsoft Entra ID and generate a client secret. Then, in the target tenant, we assign the required IAM role like 'Storage Blob Data Contributor' to that Service Principal. In ADF, we create a Linked Service using Service Principal authentication by providing client ID, tenant ID, and secret, and connect it to the ADLS Gen2 account
+
+NOTE:-WHEN CROSS TENENTS ARE THERE BEST TO USE SERVICE PRINCIPLE ,IF NOT USE MANAGED IDENTITY FOR ALL ADF,DATABRIKCS
+----------------------------------------------------------------------------------------------------------------
+ADLSGEN2
+"Azure Data Lake Storage Gen2 is a scalable and secure cloud storage solution designed for big data analytics. It is built on top of Azure Blob Storage and provides features like hierarchical namespace, fine-grained access control, and high performance. It integrates seamlessly with services like Azure Databricks and ADF and is widely used for building data lake and lakehouse architectures."
