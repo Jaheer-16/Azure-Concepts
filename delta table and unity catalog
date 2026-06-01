@@ -63,3 +63,17 @@ Delta Lake transaction log = reliability (versioning, time travel, history).
 Unity Catalog = governance (lineage, masking, RBAC, audit).
 
 Together, they give you both data reliability + enterprise‑grade security/compliance.
+
+unitycatalog creation:"After creating a metastore and assigning it to a workspace in Unity Catalog, 
+the next steps are to create a catalog, then a schema inside the catalog, and finally create Delta tables within that schema.
+This hierarchy helps in organizing and governing data securely."
+
+Metastore
+   ↓
+Catalog
+   ↓
+Schema (Database)
+   ↓
+Table (Delta Table)
+
+
