@@ -1,0 +1,128 @@
+Final Table (Target)
+     ↓
+Lookup → MAX(timestamp)
+     ↓
+Copy Activity
+     ↓
+Source Table (Fetch only new data)
+     ↓
+Insert into Target
+
+STEP1:-BY LOOKUP activity i will keep dataset as sink table, where i will give query select max(timestamp) from sink table
+STEP2:-through COPY activity ,here my source dataset is source table and sink dataset is sink table then i will give query source timestamp > sink timestamp, then only new inserted time stamps data are loaded
+
+To acheive this i need to create  sql database
+
+
+========================================
+INCREMENTAL LOAD BY USING DELTA TABLES
+========================================
+**STEP 1: Create Source Table
+
+CREATE TABLE source_table (
+    id INT,
+    name STRING,
+    timestamp TIMESTAMP
+);
+INSERT INTO source_table VALUES
+(1, 'A', '2026-06-01 10:00:00'),
+(2, 'B', '2026-06-01 11:00:00'),
+(3, 'C', '2026-06-01 12:00:00');
+
+**STEP 2: Create Target Delta Table
+
+CREATE TABLE target_table (
+    id INT,
+    name STRING,
+    timestamp TIMESTAMP
+)
+USING DELTA;
+
+**STEP 3: Create Watermark Table 
+
+CREATE TABLE watermark_table (
+    table_name STRING,
+    last_load_time TIMESTAMP
+)
+USING DELTA;
+
+**STEP 4:  Initialize Watermark
+
+INSERT INTO watermark_table
+VALUES ('target_table', '1900-01-01 00:00:00');
+
+**STEP 5: Initial Load (First Time)
+
+MERGE INTO target_table t
+USING (
+    SELECT *
+    FROM source_table
+) s
+ON t.id = s.id
+
+WHEN MATCHED THEN UPDATE SET
+    t.name = s.name,
+    t.timestamp = s.timestamp
+
+WHEN NOT MATCHED THEN 
+    INSERT (id, name, timestamp)
+    VALUES (s.id, s.name, s.timestamp);
+	
+**STEP 6: Update Watermark After Initial Load
+
+UPDATE watermark_table
+SET last_load_time = (
+    SELECT MAX(timestamp) FROM source_table
+)
+WHERE table_name = 'target_table';
+
+**STEP 7: Simulate New + Updated Data
+
+INSERT INTO source_table VALUES
+(4, 'D', '2026-06-01 13:00:00'),         -- New record
+(2, 'B_UPDATED', '2026-06-01 14:00:00'); -- Updated record
+
+**STEP 8: Incremental Load (Core Logic)
+
+MERGE INTO target_table t
+USING (
+    SELECT *
+    FROM source_table
+    WHERE timestamp > (
+        SELECT last_load_time
+        FROM watermark_table
+        WHERE table_name = 'target_table'
+    )
+) s
+ON t.id = s.id
+
+WHEN MATCHED THEN UPDATE SET
+    t.name = s.name,
+    t.timestamp = s.timestamp
+
+WHEN NOT MATCHED THEN 
+    INSERT (id, name, timestamp)
+    VALUES (s.id, s.name, s.timestamp);
+	
+STEP 9: Update Watermark (After Each Load)
+
+UPDATE watermark_table
+SET last_load_time = (
+    SELECT MAX(timestamp) 
+    FROM source_table
+    WHERE timestamp > (
+        SELECT last_load_time
+        FROM watermark_table
+        WHERE table_name = 'target_table'
+    )
+)
+WHERE table_name = 'target_table';
+
+NOTE:-you can use MAX(timestamp) from the target table instead of a watermark table But creating watermarktable is recommded when dataset is huge
+
+THEORY:-"I use a watermark table to track the last processed timestamp. During each run, I fetch that value, filter the source data to get only the incremental records, and use a MERGE operation on a Delta table to handle both inserts and updates. After successful load, I update the watermark with the latest timestamp."
+
+Watermark pattern is an incremental loading technique used to process only new or changed data based on a tracking column (usually a timestamp).
+
+
+
