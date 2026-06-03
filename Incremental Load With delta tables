@@ -118,6 +118,13 @@ SET last_load_time = (
 )
 WHERE table_name = 'target_table';
 
+OR
+UPDATE WATERMARK_TABLE
+SET LOAD_TIME=COALESCE((SELECT MAX(TIMESTAMP) FROM SOURCE
+              WHERE TIMESTAMP> (SELECT LOAD_TIME FROM WATERMARK_TABLE
+			  WHERE TABLE_NAME='TARGET_TABLE')),LOAD_TIME)
+WHERE TABLE_NAME='TARGET_TABLE' [THIS IS INDUSTRY STARNDARD BECASUE INCASE SOURCE DONT HAVE ANY DATA THEN TIMESTAMP WOUKD BE NULL,TO AVOID THIS KIND OF ISSUE WE WILL USE THIS)
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 NOTE:-you can use MAX(timestamp) from the target table instead of a watermark table But creating watermarktable is recommded when dataset is huge
 
 THEORY:-"I use a watermark table to track the last processed timestamp. During each run, I fetch that value, filter the source data to get only the incremental records, and use a MERGE operation on a Delta table to handle both inserts and updates. After successful load, I update the watermark with the latest timestamp."
