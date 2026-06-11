@@ -42,7 +42,7 @@ MERGE INTO TARGET_TABLE T
 USING ( SELECT * FROM SOURCE_TABLE  
         WHERE updated_ts > (SELECT last_load_time
         FROM watermark_table
-        WHERE table_name = 'target_table')
+        WHERE table_name = 'TARGET_TABLE')
 	  )S
 ON T.CUST_ID=S.CUST_ID
 AND T.IS_ACTIVE='Y'
