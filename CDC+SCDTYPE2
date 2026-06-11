@@ -1,0 +1,96 @@
+STEP1:-
+CREATE TABLE SOURCE_TABLE(
+CUST_ID INT,
+CUST_NAME STRING,
+KLS_ID INT,
+PRODUCT_INFO STRING,
+START_DATE DATE,
+END_DATE DATE,
+IS_ACTIVE STRING,
+updated_ts TIMESTAMP
+)
+
+INSERT INTO SOURCE_TABLE VALUES
+(1,'Jaheer',524415,'vdsl-100mbps','2025-01-01',NULL,'Y','2026-06-01 10:00:00'),
+(2,'Alex',524413,'svvdsl-200mbps','2025-01-01',NULL,'Y','2026-06-01 10:00:00')
+
+
+STEP2:-
+CREATE TABLE TARGET_TABLE(
+CUST_ID INT,
+CUST_NAME STRING,
+KLS_ID INT,
+PRODUCT_INFO STRING,
+START_DATE DATE,
+END_DATE DATE,
+IS_ACTIVE STRING,
+updated_ts TIMESTAMP
+)
+USING DELTA;
+
+STEP3:-
+CREATE TABLE watermark_table (
+    table_name STRING,
+    last_load_time TIMESTAMP
+)
+
+INSERT INTO watermark_table VALUES
+('TARGET_TABLE','1900-01-01 00:00:00')
+
+STEP4:-
+MERGE INTO TARGET_TABLE T
+USING ( SELECT * FROM SOURCE_TABLE  
+        WHERE updated_ts > (SELECT last_load_time
+        FROM watermark_table
+        WHERE table_name = 'target_table')
+	  )S
+ON T.CUST_ID=S.CUST_ID
+AND T.IS_ACTIVE='Y'
+
+WHEN MATCHED AND (T.KLS_ID<>S.KLS_ID OR T.PRODUCT_INFO<>S.PRODUCT_INFO) THEN UPDATE SET
+T.END_DATE=Current_date(),
+T.IS_ACTIVE='N';
+
+INSERT INTO TARGET_TABLE
+SELECT
+S.CUST_ID,
+S.CUST_NAME,
+S.KLS_ID,
+S.PRODUCT_INFO,
+current_date() AS START_DATE,
+NULL AS END_DATE,
+'Y' AS IS_ACTIVE,
+S.updated_ts
+FROM (SELECT * FROM SOURCE_TABLE 
+WHERE updated_ts > (SELECT last_load_time FROM watermark_table
+WHERE table_name='TARGET_TABLE')
+) S
+LEFT JOIN TARGET_TABLE T
+ON T.CUST_ID=S.CUST_ID
+AND T.IS_ACTIVE='Y'
+WHERE T.CUST_ID IS NULL
+OR T.KLS_ID <> S.KLS_ID
+OR T.PRODUCT_INFO <> S.PRODUCT_INFO;
+
+
+STEP5:-
+UPDATE watermark_table
+SET last_load_time=COALESCE((SELECT MAX(updated_ts) FROM SOURCE_TABLE
+                    WHERE updated_ts > (SELECT last_load_time
+					FROM watermark_table WHERE table_name='TARGET_TABLE')
+					),last_load_time)
+WHERE table_name='TARGET_TABLE';
+
+----------------------------------------------------------------------------------------------------------------
+ARCHITECTURE
+
+SOURCE_TABLE
+   ↓ (watermark filter)
+Incremental data only
+   ↓
+MERGE → expire old records (SCD2)
+   ↓
+INSERT → new + updated records
+   ↓
+UPDATE watermark
+-------------------------------------------------------------------------------------------------------------
