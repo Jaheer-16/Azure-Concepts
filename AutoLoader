@@ -1,0 +1,49 @@
+STEP1:
+df = (
+    spark.readStream
+    .format("cloudFiles")   #Tells Databricks to use Auto Loader for incremental file ingestion
+    .option("cloudFiles.format", "csv")
+    .option("cloudFiles.schemaLocation", schema_path) #to store schema of our data,useful when upcoming files have newly col
+    .option("header", "true")
+    .option("cloudFiles.inferColumnTypes", "true") #to detect schema,col data type
+    .load(source_path)
+)
+
+
+By this code, Auto Loader picks files from ADLS Gen2 landing path.
+
+STEP2:
+from pyspark.sql.functions import current_timestamp, input_file_name
+
+df_final = (
+    df
+    .withColumn("ingestion_timestamp", current_timestamp()) #to know when the record was loaded into Databricks.
+    .withColumn("source_file_path", input_file_name()) #to know from which source file each record came.
+)
+
+This is useful for:
+
+Audit tracking
+Debugging
+Data lineage
+Reprocessing failed/bad files
+Identifying source of wrong records
+
+This step is used to add audit columns like ingestion timestamp and source file path to each record before writing into the Delta table.
+
+STEP3:
+
+query = (
+    df_final.writeStream
+    .format("delta")
+    .option("checkpointLocation", checkpoint_path)
+    .outputMode("append")
+    .trigger(availableNow=True)
+    .toTable(target_table) or .start(bronze_path)-> this will write data in adlsgen2
+)
+
+“The last step is writeStream, where we write the Auto Loader output into a Delta table. We provide checkpointLocation so Databricks tracks already processed files and loads only new files in the next run.
+
+stores checkpoint metadata. This is very important because checkpoint helps Auto Loader remember which files are already processed. Auto Loader stores file-processing metadata in the checkpoint location and uses it to provide exactly-once processing
+
+means process all currently available new files and then stop automatically. This is useful when running the notebook through a scheduled Databricks Job. Databricks recommends Trigger.AvailableNow for triggered incremental jobs where continuous low-latency streaming is not required
