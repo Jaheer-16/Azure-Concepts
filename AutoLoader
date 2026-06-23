@@ -57,3 +57,5 @@ Auto Loader uses managed file events.
 That means when a new file lands in ADLS/external storage, Databricks uses file event metadata to know that a new file arrived. Auto Loader can then discover new files from the file events cache instead of doing full directory listing every time.
 
 USECASE:-if your source folder has thousands or millions of files, listing becomes slower and costly.
+
+enabling File arrival trigger in Databricks Job UI allows the job to run automatically when a new file arrives.
