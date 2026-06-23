@@ -47,3 +47,13 @@ query = (
 stores checkpoint metadata. This is very important because checkpoint helps Auto Loader remember which files are already processed. Auto Loader stores file-processing metadata in the checkpoint location and uses it to provide exactly-once processing
 
 means process all currently available new files and then stop automatically. This is useful when running the notebook through a scheduled Databricks Job. Databricks recommends Trigger.AvailableNow for triggered incremental jobs where continuous low-latency streaming is not required
+
+
+
+NOTE:-
+.option("cloudFiles.useManagedFileEvents", "true")->add this step in read files step1
+
+Auto Loader uses managed file events.
+That means when a new file lands in ADLS/external storage, Databricks uses file event metadata to know that a new file arrived. Auto Loader can then discover new files from the file events cache instead of doing full directory listing every time.
+
+USECASE:-if your source folder has thousands or millions of files, listing becomes slower and costly.
