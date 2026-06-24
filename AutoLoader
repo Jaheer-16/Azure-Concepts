@@ -59,3 +59,7 @@ That means when a new file lands in ADLS/external storage, Databricks uses file 
 USECASE:-if your source folder has thousands or millions of files, listing becomes slower and costly.
 
 enabling File arrival trigger in Databricks Job UI allows the job to run automatically when a new file arrives.
+
+
+.option("cloudFiles.useNotifications", "true")-->cloud itself send notification  through queue service whenever the new 
+file landed in source
