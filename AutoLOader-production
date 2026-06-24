@@ -1,0 +1,38 @@
+from pyspark.sql.functions import current_timestamp, input_file_name
+
+raw_df = (
+    spark.readStream
+    .format("cloudFiles")
+    .option("cloudFiles.format", "csv")
+    .option("cloudFiles.schemaLocation", schema_location)
+    .option("cloudFiles.useManagedFileEvents", "true")
+    .option("cloudFiles.schemaEvolutionMode", "addNewColumns")
+    .option("header", "true")
+    .option("mode", "PERMISSIVE")
+    .option("badRecordsPath", bad_records_path)
+    # Prefer explicit schema in real projects instead of inferColumnTypes
+    # .schema(input_schema)
+    .load(source_path)
+)
+
+mode = PERMISSIVE allows the pipeline to continue even if some records are malformed, and badRecordsPath stores those bad records separately for debugging instead of failing the entire Auto Loader job.
+
+With PERMISSIVE, if any row is malformed, the job will not fail. Spark will try to process the row by putting invalid values as null or marking it as corrupt. Bad records/details can be stored in badRecordsPath for debugging.
+
+bronze_df = (
+    raw_df
+    .withColumn("ingestion_time", current_timestamp())
+    .withColumn("source_file_name", input_file_name())
+)
+
+query = (
+    bronze_df.writeStream
+    .format("delta")
+    .option("checkpointLocation", checkpoint_location)
+    .option("mergeSchema", "true")
+    .outputMode("append")
+    .trigger(availableNow=True)
+    .toTable(target_table)
+)
+
+query.awaitTermination()
