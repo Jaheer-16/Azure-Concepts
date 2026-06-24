@@ -1,0 +1,42 @@
+Auto Loader (commonly in systems like Databricks) has two main file detection modes:
+1. Directory Listing Mode
+--------------------------
+Periodically scans the storage directory
+Detects new files by listing contents
+Simpler setup (no external services needed)
+Slower and less efficient for large-scale directories
+
+
+2. File Notification Mode
+-------------------------
+Uses cloud-native notifications (e.g., AWS S3 events, Azure Event Grid)
+Detects new files instantly via events
+More scalable and efficient
+=========================================================================================================================
+TRIGGERS
+
+1. Trigger.AvailableNow
+-----------------------
+Processes all available data in batches and then stops automatically
+Works like a bounded streaming job (batch-style)
+Good for incremental batch processing
+
+2. Trigger.ProcessingTime
+--------------------------
+Runs the streaming query continuously at fixed intervals
+Example: every 10 seconds, 1 minute, etc.
+Keeps checking and processing new data
+
+3. Trigger.Once
+---------------
+Processes all available data one time only
+Then stops
+Similar to AvailableNow, but older/less flexible
+
+==========================================================================================================================
+MANAGEDFILEVENT->.option("cloudFiles.useManagedFileEvents", "true")
+Auto Loader uses managed file events, where Databricks automatically captures file arrival events from storage. Instead of scanning directories, Auto Loader reads these events from a managed event stream to discover new files efficiently.
+=========================================================================================================================
+.option("cloudFiles.useNotifications", "true")-->cloud itself send notification  through queue service whenever the new 
+file landed in source
+=======================================================================================================================
