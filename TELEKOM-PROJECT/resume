@@ -77,3 +77,30 @@ AWS Certified Cloud Practitioner
 
 
 Azure Data Engineer with around 2 years of experience in designing, developing, and supporting cloud-based data engineering solutions using Azure Data Factory, Azure Databricks, Azure Data Lake Storage, Azure SQL Database, PySpark, SQL, and Delta Lake. Experienced in building scalable ETL/ELT pipelines, incremental data loads, Medallion Architecture, data quality validation, workflow orchestration, and production support. Skilled in collaborating with cross-functional teams in Agile environments to deliver reliable and high-performance data solutions.
+
+
+
+Incremental ETL Pipeline for Telecom Broadband Customer Requests Using Azure Data Factory
+
+- Developed an Azure Data Factory incremental data pipeline using watermark logic to process new and updated telecom broadband customer request data.
+- Implemented Bronze, Silver, and Gold layer architecture for scalable data ingestion, transformation, and reporting.
+- Designed latest-state incremental processing instead of SCD Type 2, as historical version tracking was not required for customer request data.
+- Used LAST_UPDATED_DATE and watermark control logic to identify and process only incremental records.
+- Performed Silver Layer transformations including data cleansing, deduplication, product standardization, null handling, and derived column creation.
+- Standardized telecom product information such as ADSL, VDSL, SVVDSL, and VDSL-100MBPS to maintain consistent product classification.
+- Implemented data quality checks for mandatory fields, duplicate records, invalid product types, missing KLS_ID values, and incorrect request dates.
+- Segregated invalid records into error tables with rejection reasons and maintained audit columns for pipeline monitoring and traceability.
+- Maintained only the most recent customer request records based on update timestamp logic.
+- Improved pipeline efficiency by reducing full-load dependency and processing only new and changed records.
+
+
+Near Real-Time Customer Data Pipeline Using Databricks Auto Loader
+
+- Designed and developed a near real-time ELT pipeline using Databricks Auto Loader, PySpark, Delta Lake, and Databricks Workflows.
+- Implemented Medallion Architecture with Bronze, Silver, and Gold layers for raw ingestion, cleansing, transformation, and business reporting.
+- Configured Databricks Auto Loader with schema inference, schema evolution, checkpointing, and file arrival triggers for automated incremental ingestion.
+- Implemented fault tolerance using checkpoint locations, workflow retries, availableNow trigger, and Delta mergeSchema support.
+- Handled malformed and unexpected records using PERMISSIVE mode, badRecordsPath, and _rescued_data column.
+- Added audit columns such as ingestion timestamp and source file name to support data lineage, monitoring, and debugging.
+- Developed Silver Layer transformations for data cleansing, deduplication, standardization, and validation.
+- Built Gold Layer aggregate tables based on business requirements for downstream analytics and reporting.
