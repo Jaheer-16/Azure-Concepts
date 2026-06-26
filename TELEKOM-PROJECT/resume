@@ -176,4 +176,92 @@ DP -900(Microsoft Certified: Azure Data Fundamentals)
 AI-900(Microsoft Certified: Azure AI Fundamentals)
 AWS Certified Cloud Practitioner
  
+----------------------------------------------------------------------------------------------------------------------------
 
+SHAIK JAHEER 
+Azure Data Engineer  
+Phone: +91-7095826724                                                             
+Experience Summary   
+Email:shaikjaheer617@gmail.com  
+Azure Data Engineer with around 2 years of experience in designing, developing, and supporting cloud
+based data engineering solutions using Azure Data Factory, Azure Databricks, Azure Data Lake Storage, 
+Azure SQL Database, PySpark, SQL, and Delta Lake. Experienced in building scalable ETL/ELT pipelines, 
+incremental data loads, Medallion Architecture, data quality validation, workflow orchestration, and 
+production support. Skilled in collaborating with cross-functional teams in Agile environments to deliver 
+reliable and high-performance data solutions. 
+TECHNICAL SUMMARY 
+Strong working knowledge on Azure Databricks, Azure Data Factory. 
+Hands-on experience in Azure Data Factory and its Core Concepts like Datasets, Pipelines and 
+Activities, Scheduling and Execution 
+Designed and developed data ingestion pipelines from on-premises to different layers into the ADLS 
+using Azure Data Factory  
+Experience with integration of data from multiple data sources 
+Knowledge on Azure Databricks, creation of Notebooks 
+Worked on creating the RDDs, DFs for the required input data and performed the data 
+transformations using Spark-core 
+Extensive experience working in an Agile environment 
+Extensively Worked on Copy Data activity 
+Implemented dynamic pipeline to extract the multiple files into multiple targets with the help of 
+single pipeline. 
+Pipeline execution methods (Debug vs Triggers) 
+Strong in writing the SQL queries using Joins, Correlated Queries and Sub-Queries 
+Monitor and manage Azure Data Factory 
+Extensively used ETL methodology for supporting Data Extraction, Transformation and processing of 
+data from Source systems using Azure Data Factory into Azure Data Lake Storage 
+Involved in production support activities. 
+Good team player with excellent communication and interpersonal skills 
+Play a key role in team collaboration, pipeline development, and production support activities 
+Leveraged GitHub for version control 
+Employment History 
+• Working as a Programmer Analyst at Cognizant Technology Solutions in Chennai from AUGUST 
+2024 to Till Date. 
+Education  
+• Bachelor of Technology (B.Tech) in Electronics and communication Engineering (ECE) – VEL TECH 
+university. 
+Technical Skill set:  
+• Azure Services        
+• Database Languages                      
+: Azure Databricks, Azure Data factory, Azure Data Lake  
+:  SQL  
+• Programming Languages /APIs  :   Python, PySpark 
+INTERNSHIPS:  
+• Cognizant Technology Solutions (January 2024  - April 2024) 
+Work Experience 
+PROJECT1: Incremental ETL Pipeline for Telecom Broadband Customer Requests Using Azure Data Factory 
+Developed an Azure Data Factory incremental data pipeline using watermark logic to process new and 
+updated telecom broadband customer request data. 
+Implemented Bronze, Silver, and Gold layer architecture for scalable data ingestion, transformation, and 
+reporting. 
+Designed latest-state incremental processing instead of SCD Type 2, as historical version tracking was not 
+required for customer request data. 
+Used LAST_UPDATED_DATE and watermark control logic to identify and process only incremental records. 
+Performed Silver Layer transformations including data cleansing, deduplication, product standardization, 
+null handling, and derived column creation. 
+Standardized telecom product information such as ADSL, VDSL, SVVDSL, and VDSL-100MBPS to maintain 
+consistent product classification. 
+Implemented data quality checks for mandatory fields, duplicate records, invalid product types, missing 
+KLS_ID values, and incorrect request dates. 
+Segregated invalid records into error tables with rejection reasons and maintained audit columns for 
+pipeline monitoring and traceability. 
+Maintained only the most recent customer request records based on update timestamp logic. 
+Improved pipeline efficiency by reducing full-load dependency and processing only new and changed 
+records. 
+PROJECT2:  Near Real-Time Customer Data Pipeline using Databricks Auto Loader 
+Designed and developed a near real-time ELT pipeline using Databricks Auto Loader, PySpark, Delta Lake, 
+and Databricks Workflows. 
+Implemented Medallion Architecture with Bronze, Silver, and Gold layers for raw ingestion, cleansing, 
+transformation, and business reporting. 
+Configured Databricks Auto Loader with schema inference, schema evolution, checkpointing, and file arrival 
+triggers for automated incremental ingestion. 
+Implemented fault tolerance using checkpoint locations, workflow retries, available Now trigger, and Delta 
+merge Schema support. 
+Handled malformed and unexpected records using PERMISSIVE mode, bad Records Path, and _rescued data 
+column. 
+Added audit columns such as ingestion timestamp and source file name to support data lineage, 
+monitoring, and debugging. 
+Developed Silver Layer transformations for data cleansing, deduplication, standardization, and validation. 
+Built Gold Layer aggregate tables based on business requirements for downstream analytics and reporting. 
+CERTIFICATIONS 
+DP -900(Microsoft Certified: Azure Data Fundamentals) 
+AI-900(Microsoft Certified: Azure AI Fundamentals) 
+AWS Certified Cloud Practitioner 
