@@ -1,0 +1,76 @@
+PROJECT 
+
+CSV files in source_path
+        ↓
+Auto Loader readStream with managed file events
+        ↓
+Add ingestion_time
+        ↓
+Write to Delta table
+        ↓
+availableNow trigger processes pending files and stops
+
+-------------------------------------------------------------------------------------------------------------------
+POSSIBLE ERRORS
+
+P1-
+PERMISSION_DENIED
+403 Forbidden
+Path does not exist
+Cannot access abfss/s3 path
+
+Databricks cluster/job does not have permission to read or write to schema_location,checkpoint_location,target_table
+
+P2-
+useManagedFileEvents not supported or not configured properly-.option("cloudFiles.useManagedFileEvents", "true")
+
+P3-
+Schema location issue
+Issues happen when:
+Path is not writable
+Same schema location is reused by another pipeline
+Old schema metadata conflicts with new source files
+Path accidentally deleted
+
+Solution
+Use a dedicated schema location per source/table.
+
+P4-
+Checkpoint location issue
+Failures happen if:
+Checkpoint deleted
+Checkpoint reused for another table
+Code changed drastically
+Multiple jobs use same checkpoint
+Manual modification happened
+
+Solution
+Use one checkpoint per streaming query.
+
+P5-
+Schema evolution failure
+In real projects, better to define schema manually.
+Use schema evolution mode-.option("cloudFiles.schemaEvolutionMode", "addNewColumns")
+
+P6-
+Duplicate processing or duplicate rows
+Why it can happen
+Auto Loader gives strong file-level tracking using checkpoint, but duplicates can still happen if:
+
+Same data comes in different file names
+Checkpoint is deleted
+Job reruns with a new checkpoint
+Upstream sends duplicate files
+Same source path is processed by two pipe
+
+->Add metadata columns:current_filestamp(),input_file_name()
+
+
+P7-
+If you are using Auto Loader with cloudFiles.schemaEvolutionMode = "addNewColumns", then when a new column arrives, Auto Loader may fail the stream once with an UnknownFieldException. Before failing, it updates the schema in the configured cloudFiles.schemaLocation. After restart/retry, the stream can continue with the updated schema. [docs.databricks.com], [community....bricks.com]
+
+So in a Job/Workflow, adding retry to the ingest task is a good practice.
+
+
+
+
