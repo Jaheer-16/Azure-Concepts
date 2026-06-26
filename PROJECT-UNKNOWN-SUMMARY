@@ -1,0 +1,46 @@
+“I used Databricks Auto Loader with cloudFiles to incrementally ingest CSV files from the source path. I configured schemaLocation to track schema metadata and enabled schemaEvolutionMode = addNewColumns to handle future new columns. I used PERMISSIVE mode with badRecordsPath and rescuedDataColumn to prevent bad records or unexpected data from failing the full pipeline. I also enabled managed file events to reduce manual event notification setup and improve file discovery. For controlled testing, I used maxFilesPerTrigger = 1, and added whitespace handling options to clean CSV values during ingestion.”
+
+
+File Arrival Trigger
+        ↓
+Task 1: Bronze Auto Loader Notebook
+        - readStream cloudFiles
+        - add audit columns
+        - writeStream Delta
+        - trigger availableNow
+        - checkpoint
+        ↓
+Task 2: Silver Notebook
+        - read Bronze table
+        - clean data
+        - validate data
+        - remove duplicates
+        - write Silver Delta table
+        ↓
+Task 3: Gold Notebook
+        - read Silver table
+        - business aggregations
+        - write Gold Delta table
+		
+		
+		
+Project: Near Real-Time Customer Data Pipeline using Databricks Auto Loader
+
+Designed and developed a near real-time ELT pipeline using Databricks Auto Loader, PySpark, Delta Lake, and Databricks Workflows.
+Implemented Medallion Architecture with Bronze, Silver, and Gold layers for raw ingestion, cleansing, and business reporting.
+Configured Auto Loader with schema inference, schema evolution, managed file events, checkpointing, and file arrival triggers for automated incremental ingestion.
+Added fault-tolerance using checkpoint locations, workflow retries, availableNow trigger, and Delta mergeSchema support.
+Handled malformed and unexpected records using PERMISSIVE mode, badRecordsPath, and _rescued_data column.
+Added audit columns including ingestion timestamp and source file name to support data lineage and debugging.
+Developed Silver layer transformations for data cleansing, deduplication, standardization, and validation.
+Built Gold layer aggregate tables based on business requirements for downstream analytics and reporting.
+
+
+
+“I built a near real-time customer data pipeline using Databricks Auto Loader and Delta Lake. The pipeline follows the Medallion Architecture. In the Bronze layer, I ingest raw CSV files incrementally using Auto Loader with schema evolution, checkpointing, bad record handling, rescued data column, and audit columns. I used managed file events and file arrival triggers so the job starts automatically whenever a new file lands in the source path. After Bronze ingestion completes using availableNow=True, the Silver task performs cleansing and standardization. Finally, the Gold task applies business aggregations for reporting. I also configured workflow retries to handle schema evolution exceptions and enabled Delta mergeSchema to support newly added columns.”
+
+
+
+If interviewer asks“How will you do orchestration without ADF?
+“I will use Databricks Workflows / Jobs for orchestration. Since my pipeline is fully inside Databricks, I don’t need ADF. I will create a multi-task Databricks Workflow where each notebook is one task. The first task will be Auto Loader Bronze ingestion, triggered by file arrival. Once Bronze completes successfully, the Silver transformation task will run. After Silver succeeds, the Gold aggregation task will run. I will configure task dependencies, retries, retry interval, max concurrent runs, and monitoring inside Databricks Workflow.
+
