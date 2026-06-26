@@ -1,0 +1,184 @@
+Business scenario
+Customers place Wi‑Fi requests by providing:
+
+KLS_ID → address / pincode identifier
+PRODUCT_INFO → requested broadband plan, such as adsl, vdsl, svvdsl, or plans like vdsl-100mbps
+
+-Extract customer order data daily
+-Load only new/changed records using incremental loading
+-Track historical changes using SCD Type 2
+-Build Bronze → Silver → Gold Delta tables
+-Expose Gold star schema to business users for Power BI dashboards
+
+Project Overview
+In my project, the business is from the telecom domain, where customers request Wi‑Fi/broadband services by providing details like customer ID, KLS_ID (which represents address/pincode), and PRODUCT_INFO such as adsl, vdsl, svvdsl, or plans like vdsl-100mbps. Since new customer requests and updates come daily, I designed an incremental data pipeline instead of a full load approach. Incremental loading with a watermark is a common Azure Data Factory design for processing only new or changed records, which improves performance and reduces unnecessary data movement.
+
+- Developed an Azure Data Factory incremental pipeline using watermark logic to process new and updated telecom broadband customer request data.
+- Implemented Bronze, Silver, and Gold layer architecture for scalable data ingestion and transformation.
+- Designed latest-state incremental load processing instead of SCD Type 2, as historical version tracking was not required for the customer request data.
+- Performed Silver Layer transformations including data cleansing, deduplication, product standardization, null handling, and derived column creation.
+- Standardized telecom product information such as ADSL, VDSL, SVVDSL, and VDSL-100MBPS to maintain consistent product classification.
+- Implemented data quality checks for mandatory fields, duplicate records, invalid product types, missing KLS_ID values, and incorrect request dates.
+- Maintained only the most recent customer request records based on LAST_UPDATED_DATE using watermark and update timestamp logic.
+- Improved pipeline performance by processing only new and changed records instead of performing full loads.
+
+
+Tools Used
+
+Azure Data Factory (ADF) for extraction and orchestration of pipeline activities such as watermark lookup, delta copy, and triggering downstream jobs. The watermark-based incremental copy pattern using Lookup, Copy, and control-table update activities. 
+Azure Databricks for transformation and Delta Lake processing. Databricks recommends a medallion architecture with Bronze, Silver, and Gold layers for structured lakehouse pipelines. 
+Delta Lake for ACID transactions and MERGE operations, which are especially useful for implementing SCD Type 2 logic on Delta tables. MERGE INTO is supported for Delta Lake tables and is used for upserts and change processing. 
+Power BI for dashboards built on top of Gold layer star schema tables. Microsoft recommends star schema for Power BI semantic models because it improves usability and performance.
+
+
+Architecture Summary
+The pipeline follows a Medallion Architecture:
+
+Bronze → raw data from source, stored with minimal transformation for audit and replay. Databricks describes Bronze as the raw, append-only source-of-truth layer. 
+Silver → cleaned, validated, deduplicated, and historized data. Databricks recommends Silver for data quality, standardization, and business-rule enforcement. 
+Gold → business-ready fact and dimension tables for reporting and dashboards. Databricks defines Gold as the business-ready layer optimized for consumption. 
+
+
+How Data is Pulled Using ADF
+In a production design, ADF would pull data using a watermark-based incremental load:
+
+A Lookup activity reads the last processed timestamp from a control/watermark table. 
+Another Lookup activity gets the latest MAX(updated_ts) from the source system. 
+A Copy activity extracts only those records where updated_ts is greater than the old watermark and less than or equal to the new watermark. This is the standard delta-copy pattern documented by Microsoft. 
+After extraction, ADF triggers a Databricks notebook/job to process Bronze, Silver, and Gold layers. This is a common orchestration pattern in Azure-based pipelines. 
+If the run is successful, ADF updates the watermark table for the next execution. Microsoft’s documented pattern stores the new high watermark only after processing completes. 
+
+
+Why Incremental Load
+I selected incremental loading because the telecom source system receives daily new requests and modifications, and processing the entire source every day would be inefficient. Microsoft’s ADF documentation explains that incremental loading reduces data movement and copies only new/updated records based on a watermark column such as a timestamp or incrementing key. 
+
+Why SCD Type 2
+I implemented Slowly Changing Dimension Type 2 because customer details like KLS_ID or PRODUCT_INFO can change over time, and the business wants to preserve history instead of overwriting old values. SCD Type 2 keeps historical versions by closing the old record and inserting a new active record. Delta Lake’s MERGE INTO operation is well-suited for update/insert logic on Delta tables. 
+Example
+If a customer originally requested vdsl-100mbps and later changes to svvdsl-200mbps:
+
+the old row is marked inactive with END_DATE populated, and
+a new row is inserted with IS_ACTIVE = 'Y' and a fresh START_DATE.
+
+This is exactly the kind of historical tracking SCD2 is designed for. 
+
+Your Existing Logic (How to Explain It)
+In Databricks:
+
+I maintain a source table containing incoming customer request data.
+I maintain a target Delta table to store the historical SCD2 records.
+I use a watermark table to store the last processed timestamp.
+During every run:
+
+I filter source rows using the watermark,
+I use MERGE to expire old active records if KLS_ID or PRODUCT_INFO changed,
+then I insert new versions and brand-new records,
+finally I update the watermark table.
+
+
+
+That design combines incremental processing and historical data tracking, which is a strong real-world data engineering pattern. MERGE on Delta tables is specifically provided for this kind of operation. 
+
+Gold Layer Design
+In the Gold layer, I create business-ready star schema tables:
+
+Dimension tables such as dim_customer, dim_product, dim_location, and dim_date
+Fact tables such as fact_wifi_requests or fact_active_subscriptions
+
+Microsoft recommends modeling Power BI semantic models using facts and dimensions because star schema improves filtering behavior, performance, and report usability. Microsoft also notes that for large volumes and advanced concepts like slowly changing dimensions, it is better to build ETL/data warehouse layers first and then connect Power BI to those curated tables.
+
+How Business Users Use the Data
+Power BI users connect only to the Gold layer, not directly to raw data. This allows them to prepare dashboards such as:
+
+active customers by pincode/KLS_ID
+product demand by plan type
+daily new customer requests
+plan migration history
+product popularity by region
+
+This approach aligns with Microsoft’s guidance to use curated star schema datasets for Power BI reporting. 
+
+What Happens If the Pipeline Fails?
+This is an important interview question.
+If the pipeline fails:
+
+Watermark should not be updated until the pipeline finishes successfully, otherwise data may be skipped in the next run. The documented ADF watermark pattern updates the control table after successful processing. 
+In ADF, I would use failure paths (Upon Failure) to capture errors and route the pipeline to logging/notification steps. ADF supports conditional execution paths such as success, failure, completion, and skip. 
+For transient issues like connectivity or infrastructure glitches, I would configure retry policies at the activity level. ADF activities support retry configuration with retry count and interval. , [learn.microsoft.com]
+I would maintain an audit/error log table storing pipeline run ID, activity name, failed step, error message, and timestamp.
+I would also send alerts through Azure Monitor / email / Teams / Logic App so the support team is notified immediately. ADF monitoring and Azure alerting are common approaches for pipeline failure management.
+
+           
+                    ┌────────────────────────────┐
+                    │   Telekom Source System    │
+                    │ Customer Wi‑Fi Requests     
+                    │ (CUST_ID, KLS_ID, Product, │
+                    │  updated_ts, etc.)         │
+                    └──────────────┬─────────────┘
+                                   │
+                                   │ Daily Incremental Extract
+                                   ▼
+                    ┌────────────────────────────┐
+                    │   Azure Data Factory       │
+                    │----------------------------│
+                    │ 1. Lookup old watermark    │
+                    │ 2. Lookup new watermark    │
+                    │ 3. Copy delta records      │
+                    │ 4. Trigger Databricks job  │
+                    │ 5. Update watermark        │
+                    │ 6. On failure -> alert/log │
+                    └──────────────┬─────────────┘
+                                   │
+                                   ▼
+                    ┌────────────────────────────┐
+                    │ Bronze Layer (Delta)       │
+                    │----------------------------│
+                    │ Raw source data            │
+                    │ Append only                │
+                    │ Audit metadata             │
+                    └──────────────┬─────────────┘
+                                   │
+                                   ▼
+                    ┌────────────────────────────┐
+                    │ Silver Layer (Delta)       │
+                    │----------------------------│
+                    │ Cleansing / validation     │
+                    │ Deduplication              │
+                    │ Incremental processing     │
+                    │ SCD Type 2 history         │
+                    │ Active + inactive records  │
+                    └──────────────┬─────────────┘
+                                   │
+                                   ▼
+                    ┌────────────────────────────┐
+                    │ Gold Layer (Delta)         │
+                    │----------------------------│
+                    │ Star Schema                │
+                    │ dim_customer               │
+                    │ dim_product                │
+                    │ dim_location               │
+                    │ dim_date                   │
+                    │ fact_wifi_requests         │
+                    │ fact_active_subscriptions  │
+                    └──────────────┬─────────────┘
+                                   │
+                                   ▼
+                    ┌────────────────────────────┐
+                    │        Power BI            │
+                    │----------------------------│
+                    │ Dashboards / KPIs / Trends │
+                    │ Product Demand             │
+                    │ Active Customers           │
+                    │ Plan Change History        │
+                    └────────────────────────────┘
+
+ADF DESIGN:-
+Schedule Trigger — run daily. 
+Lookup / Get Control Value — read last successful file watermark. 
+Set Variable — set new high watermark for this run. 
+Copy Activity — copy only new/changed files using LastModifiedDate. 
+If Condition — run downstream only if files were copied. 
+Databricks Notebook Activity — run row-level incremental transformation and SCD2 logic. 
+Stored Procedure / Script Activity — update watermark on success.
+Audit Log Activity — insert audit details.
+Failure Branch — log error + send alert + do not move watermark. 
