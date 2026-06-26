@@ -13,6 +13,8 @@ PRODUCT_INFO → requested broadband plan, such as adsl, vdsl, svvdsl, or plans 
 Project Overview
 In my project, the business is from the telecom domain, where customers request Wi‑Fi/broadband services by providing details like customer ID, KLS_ID (which represents address/pincode), and PRODUCT_INFO such as adsl, vdsl, svvdsl, or plans like vdsl-100mbps. Since new customer requests and updates come daily, I designed an incremental data pipeline instead of a full load approach. Incremental loading with a watermark is a common Azure Data Factory design for processing only new or changed records, which improves performance and reduces unnecessary data movement.
 
+Incremental ETL Pipeline for Telecom Broadband Customer Requests Using Azure Data Factory
+
 - Developed an Azure Data Factory incremental pipeline using watermark logic to process new and updated telecom broadband customer request data.
 - Implemented Bronze, Silver, and Gold layer architecture for scalable data ingestion and transformation.
 - Designed latest-state incremental load processing instead of SCD Type 2, as historical version tracking was not required for the customer request data.
