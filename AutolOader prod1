@@ -1,0 +1,52 @@
+raw_df=(
+    spark.readStream.format('cloudFiles')
+        .option('cloudFiles.format','csv')
+        .option('cloudFiles.schemaLocation',schema_location)
+        .option('cloudFiles.schemaEvolutionMode','addNewColumns')
+        .option('header','true')
+        .option('cloudFiles.inferColumnTypes','true')
+        .option('mode','PERMISSIVE')
+       # .option('badRecordsPath',badRecord_Path)
+        .option("rescuedDataColumn", "_rescued_data")
+        #.option("cloudFiles.useManagedFileEvents", "true")
+        .option("ignoreLeadingWhiteSpace", "true")
+        .option("ignoreTrailingWhiteSpace", "true")
+
+        .load(source_path)
+
+)
+
+
+from pyspark.sql.functions import current_timestamp,input_file_name
+
+final_df=(
+    raw_df.withColumn('ingestion_time',current_timestamp())
+          #.withColumn('source_file',input_file_name())
+         
+)
+
+
+query=(
+    final_df.writeStream
+    .format('delta')
+    .option('checkpointLocation',checkpoint_location)
+    .option('mergeSchema','true')
+    .outputMode('append')
+    .trigger(availableNow=True)
+    .toTable(target_table)
+)
+query.awaitTermination()
+-----------------------------------------------------------------------------------------------------------------------
+
+transform_df=final_df = spark.table("bronze_customer_catalog.bronze_customer_schema.customer_bronze_landing").fillna(1000);
+
+transform_df.write.mode('append').option('mergeSchema', 'true').saveAsTable("silver_customer_catalog.silver_customer_schema.customer_silver_landing");
+
+--------------------------------------------------------------------------------------------------------------------------
+
+
+from pyspark.sql.functions import lit
+gold_df=spark.table('silver_customer_catalog.silver_customer_schema.customer_silver_landing').withColumn('Country', lit('India'))
+display(gold_df)
+--------------------------------------------------------------------------------------------------------------------
+
