@@ -1,0 +1,71 @@
+This is the pipeline where i created end to end by using jobs inside databricks,in jobs and pipeline i created one job, in that job i divided 3 tasks interlink with each other.
+->In first task ingestion will takes from sourceFile here i used autoloader concept to pick only latest file and provided usermanagedfile event to avoid listing and for this task i have added file arrival trigger also to get benifit of event trigger.(by using file arrival trigger whenever the new file landed into source automatically databricks runs its job without any events service ,through this we can avoid infrastructure and usage of other service), Through this we achieved the incremental file load from source systems.
+
+code of task1:-
+raw_df=(
+    spark.readStream.format('cloudFiles')
+        .option('cloudFiles.format','csv')
+        .option('cloudFiles.schemaLocation',schema_location)
+        .option('cloudFiles.schemaEvolutionMode','addNewColumns')
+        .option('header','true')
+        .option('cloudFiles.inferColumnTypes','true')
+        .option('mode','PERMISSIVE')
+        .option('badRecordsPath',badRecord_Path)
+        .option("rescuedDataColumn", "_rescued_data")
+        .option("cloudFiles.useManagedFileEvents", "true")
+        .option("ignoreLeadingWhiteSpace", "true")
+        .option("ignoreTrailingWhiteSpace", "true")
+
+        .load(source_path)
+
+)
+
+
+
+from pyspark.sql.functions import current_timestamp,input_file_name
+
+final_df=(
+    raw_df.withColumn('ingestion_time',current_timestamp())
+          #.withColumn('source_file',input_file_name())
+         
+)
+
+query=(
+    final_df.writeStream
+    .format('delta')
+    .option('checkpointLocation',checkpoint_location)
+    .option('mergeSchema','true')
+    .outputMode('append')
+    .trigger(availableNow=True)
+    .toTable(target_table)
+)
+query.awaitTermination()
+here i used trigger(availableNow=True) because once we get all files, we dont need to trigger this continuosly withthat we can reduce cost of compute.mergeschema also added incase if schema changes here
+
+->In second task I write some transformation code where i had done data enrichment, data duplication etc..
+
+->In final task, its a gold layer delta table based on the user requirement i created it, data analyst team will use this gold_delta_catalog(data analyst use only gold_delta_catalog, through Unitycatalog i provided permission only to this catalog), For optimiztion to that gold_delta_table i written Code using partition,optimize,zorderby and at end i used vaccum also (incase old files not neccessary)
+
+
+This is my design of end to end pipeline by using autoloader i implemented end to end pipeline using databricks jobs(lakeflow jobs)
+Think like a senior data engineer, and tell me suggeestions here and also explain me what are the posssibiltys are there for failure and how can i overcome(consider real time project)
+
+
+--------------------------------------------------------------------------------------------------------------------
+incase if source schema is changed(addition of column) then pipeline will fail because schema evolution exception , in that case we need to add retry option for our job in databricks gui
+
+and source sends a new column, Auto Loader usually behaves like this:
+
+Auto Loader detects the new column.
+Auto Loader updates the schema in cloudFiles.schemaLocation.
+The streaming query fails once with an exception like UnknownFieldException.
+On restart/retry, Auto Loader uses the updated schema and continues successfully. Databricks documents this behavior: when Auto Loader evolves schema automatically, the stream initially fails and the evolved schema is used after restart
+
+incase if we get duplicate in landing zone file with different path, then autoloader will consider as new files, In that scenario we can use hashkey
+or
+instead of that let them allow in bronze, however bronze will maintain history if data in real projetcs(actual raw data), and in silver layer we will check duplications and remove them. This is the best approach 
+
+.option("cloudFiles.allowOverwrites", "false) use this one also useful
+
+Auto Loader will avoid ingesting the same file path again using checkpoint. But if duplicate files arrive with different file names/paths, Auto Loader will ingest them as new files. To overcome this in real projects, keep Bronze as raw history, then deduplicate in Silver using business keys, record hash, and Delta MERGE. Also maintain a file/record audit table to track duplicate files and duplicate records.
+----------------------------------------------------------------------------------------------------------------------------
