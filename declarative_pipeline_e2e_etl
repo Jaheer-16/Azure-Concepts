@@ -1,0 +1,76 @@
+from pyspark import pipelines as dp
+from pyspark.sql.functions import *
+
+landing_zone_path='/Volumes/catalog_etl/schema_etl/ingestion_source/source/'
+badRecord_path='/Volumes/catalog_etl/schema_etl/ingestion_source/bad_records/'
+##creating bronze_etl table:
+@dp.table(
+    name='bronze_etl',
+    comment='This is a bronze table, where we will ingest data from landing zone and we will add audit columns'
+)
+def bronze_etl():
+  return (
+      spark.readStream.format('cloudFiles')\
+  .option('cloudFiles.format','csv')\
+  .option('cloudFiles.schemaEvolutionMode','addNewColumns')\
+  .option('rescuedDataColumn','_rescued_data')\
+  .option('header','true').option('mode','PERMISSIVE')\
+  .option('badRecordsPath',badRecord_path)\
+  .option('cloudFiles.inferColumnTypes','true')\
+  .option('cloudFiles.useManagedFileEvents','true')\
+  .option("ignoreLeadingWhiteSpace", "true")\
+  .option("ignoreTrailingWhiteSpace", "true")\
+      .load(landing_zone_path)\
+  .withColumn('_ingesttime',current_timestamp())
+      
+  )
+      
+
+##creating silver_etl table:
+@dp.table(
+    name='silver_etl',
+    comment='This is a silver table, where we will ingest data from bronze table and we will do some transformations'
+)
+@dp.expect_or_drop('valid_id','id IS NOT NULL')
+def silver_etl():
+  return (
+      spark.readStream.table('bronze_etl')
+  .withColumn('CUSTOMER_BADGE',
+              when (col('standard')=='A','PREMIUM')\
+                  .when (col('standard')=='B','GOLD')\
+                  .when (col('standard')=='C','SILVER')\
+                  .when (col('standard')=='D','BRONZE'))
+  )
+  
+
+
+
+
+@dp.materialized_view(
+    name="gold_etl",
+    comment="Gold materialized view: customer count by country and customer badge",
+	cluster_by=["CUSTOMER_BADGE"]
+)
+def gold_etl():
+    return spark.sql("""
+        SELECT
+            country AS COUNTRY,
+            CUSTOMER_BADGE,
+            COUNT(*) AS customer_count
+        FROM silver_etl
+        GROUP BY CUSTOMER_BADGE, country
+    """);
+	
+	
+	
+	I built an incremental ETL pipeline in Databricks using Lakeflow Declarative Pipelines and Auto Loader. I followed the medallion architecture. In the bronze layer, I ingested CSV files incrementally from a Unity Catalog Volume using Auto Loader and added audit columns like ingestion timestamp. In the silver layer, I applied data quality checks using expectations and transformed the standard column into a CUSTOMER_BADGE column. In the gold layer, I created a materialized view to aggregate customer count by country and customer badge. I also handled schema evolution, bad records, and rescued data. During implementation, I learned that DLT/Lakeflow code should run only through a pipeline, not a normal cluster, and magic commands like %sql are not supported in pipeline Python
+	
+	
+At pipeline level, keep pipeline mode as:
+Because you want the pipeline to run only when it is triggered by job/file arrival.
+A triggered pipeline does not run forever; it starts when triggered by a job or schedule. Databricks says a triggered pipeline can be scheduled/run as a task in a job, while continuous pipelines do not need to be triggered through a job task
+
+At job level, create a job with a Pipeline task
+Trigger type: File arrival
+Databricks file arrival triggers start a job run when new files arrive in a monitored Unity Catalog volume or external location. The trigger can monitor a volume root or subpath and recursively checks subdirectories.
+
