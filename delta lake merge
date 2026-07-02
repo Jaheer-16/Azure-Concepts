@@ -1,0 +1,18 @@
+Delta Lake MERGE statement syntax
+
+delta_target.alias("target") \
+    .merge(
+        delta_source.alias("source"),
+        "target.id = source.id"
+    ) \
+    .whenMatchedUpdate(condition="target.city<>source.city OR target.salary<>source.salary",
+	set={
+        "city": "source.city",
+        "salary": "source.salary"
+    }) \
+    .whenNotMatchedInsert(values={
+        "id": "source.id",
+        "city": "source.city",
+        "salary": "source.salary"
+    }) \
+    .execute()
