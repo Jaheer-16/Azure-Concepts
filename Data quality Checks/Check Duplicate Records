@@ -1,0 +1,18 @@
+from pyspark.sql.functions import col,count
+
+primary_columns=['order_id','cust_id']
+
+df_duplicate_check =(
+    df.groupBy(*primary_columns)\
+    .agg(count('*').alias('duplicate_records'))\
+    .filter(col('duplicate_records')>1)
+)
+display(df_duplicate_check)
+
+df_duplicate_check_count=df_duplicate_check.count()
+
+if df_duplicate_check_count > 0:
+  print(f"Total no of duplicates records:{df_duplicate_check.count()}")
+
+else:
+  print("No duplicates matches Found")
