@@ -24,7 +24,17 @@ check_nulls=['cust_id','cust_name','age','city','salary']
 null_condition = reduce(
                         lambda x,y:x | y, [col(c).isNull() for c in check_nulls]
                         )
+                       
 null_df=df.filter(null_condition)
+null_df_count=null_df.count()
+
+if null_df_count > 0:
+ print(f"Number of null rows in the dataframe is {null_df_count}")
+
+else:
+ print("Null check passed")
+
+ 
 null_df.show()
 
 ------------------------------------------------------------------------------------------------------------------------------
