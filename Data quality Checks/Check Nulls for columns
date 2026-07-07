@@ -1,0 +1,32 @@
+from pyspark.sql import functions as F
+
+primary_columns = ['order_id', 'customer_id', 'confirmation_number']
+
+null_condition = None
+
+for column in primary_columns:
+    condition = F.col(column).isNull()
+
+    if null_condition is None:
+        null_condition = condition
+    else:
+        null_condition = null_condition | condition
+
+null_records_df = df.filter(null_condition)
+
+null_records_df.show()
+
+----------------------------------------------------------------------------------------------------------------------------
+from pyspark.sql.functions import col
+from functools import reduce
+check_nulls=['cust_id','cust_name','age','city','salary']
+
+null_condition = reduce(
+                        lambda x,y:x | y, [col(c).isNull() for c in check_nulls]
+                        )
+null_df=df.filter(null_condition)
+null_df.show()
+
+------------------------------------------------------------------------------------------------------------------------------
+
+
