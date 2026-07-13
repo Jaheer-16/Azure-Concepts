@@ -1,0 +1,189 @@
+from pyspark.sql import functions as F
+from pyspark.sql.types import (
+    StructType,
+    StructField,
+    StringType,
+    LongType,
+    DecimalType,
+    DateType,
+    TimestampType
+)
+
+
+# ------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------
+
+pipeline_name = "sales_order_silver_pipeline"
+run_id = "20260713_001"
+
+silver_table = "dev_catalog.silver.sales_orders"
+schema_error_table = "dev_catalog.dq.schema_validation_errors"
+
+
+# ------------------------------------------------------------
+# Expected schema
+# ------------------------------------------------------------
+
+expected_schema = StructType([
+    StructField("order_id", StringType(), False),
+    StructField("customer_id", StringType(), False),
+    StructField("department_id", LongType(), True),
+    StructField("order_amount", DecimalType(18, 2), False),
+    StructField("order_status", StringType(), False),
+    StructField("order_date", DateType(), False),
+    StructField("updated_timestamp", TimestampType(), True),
+    StructField("load_timestamp", TimestampType(), False)
+])
+
+
+# ------------------------------------------------------------
+# Schema validation function
+# ------------------------------------------------------------
+
+def validate_schema(dataframe, expected_schema):
+
+    issues = []
+
+    actual_fields = {
+        field.name: field
+        for field in dataframe.schema.fields
+    }
+
+    expected_fields = {
+        field.name: field
+        for field in expected_schema.fields
+    }
+
+    # Missing columns
+    for column_name in (
+        expected_fields.keys() - actual_fields.keys()
+    ):
+        issues.append({
+            "issue_type": "MISSING_COLUMN",
+            "column_name": column_name,
+            "expected_value":
+                expected_fields[
+                    column_name
+                ].dataType.simpleString(),
+            "actual_value": "COLUMN_NOT_FOUND"
+        })
+
+    # Unexpected columns
+    for column_name in (
+        actual_fields.keys() - expected_fields.keys()
+    ):
+        issues.append({
+            "issue_type": "UNEXPECTED_COLUMN",
+            "column_name": column_name,
+            "expected_value": "COLUMN_NOT_EXPECTED",
+            "actual_value":
+                actual_fields[
+                    column_name
+                ].dataType.simpleString()
+        })
+
+    # Data-type mismatch
+    for column_name in (
+        expected_fields.keys() & actual_fields.keys()
+    ):
+
+        expected_type = (
+            expected_fields[
+                column_name
+            ].dataType.simpleString()
+        )
+
+        actual_type = (
+            actual_fields[
+                column_name
+            ].dataType.simpleString()
+        )
+
+        if expected_type != actual_type:
+            issues.append({
+                "issue_type": "DATA_TYPE_MISMATCH",
+                "column_name": column_name,
+                "expected_value": expected_type,
+                "actual_value": actual_type
+            })
+
+    return issues
+
+
+# ------------------------------------------------------------
+# Run schema validation
+# Assume transformed_df already exists
+# ------------------------------------------------------------
+
+schema_issues = validate_schema(
+    transformed_df,
+    expected_schema
+)
+
+
+# ------------------------------------------------------------
+# Fail or continue
+# ------------------------------------------------------------
+
+if schema_issues:
+
+    schema_error_df = (
+        spark.createDataFrame(schema_issues)
+        .withColumn("run_id", F.lit(run_id))
+        .withColumn(
+            "pipeline_name",
+            F.lit(pipeline_name)
+        )
+        .withColumn(
+            "target_table",
+            F.lit(silver_table)
+        )
+        .withColumn(
+            "dq_status",
+            F.lit("FAILED")
+        )
+        .withColumn(
+            "validation_timestamp",
+            F.current_timestamp()
+        )
+    )
+
+    display(schema_error_df)
+
+    (
+        schema_error_df.write
+        .format("delta")
+        .mode("append")
+        .saveAsTable(schema_error_table)
+    )
+
+    raise ValueError(
+        f"Schema validation failed with "
+        f"{len(schema_issues)} issue(s)"
+    )
+
+else:
+
+    print("Schema validation passed")
+
+    expected_columns = [
+        field.name
+        for field in expected_schema.fields
+    ]
+
+    final_df = transformed_df.select(
+        *expected_columns
+    )
+
+    (
+        final_df.write
+        .format("delta")
+        .mode("append")
+        .option("mergeSchema", "false")
+        .saveAsTable(silver_table)
+    )
+
+    print(
+        f"Data successfully written to {silver_table}"
+    )
