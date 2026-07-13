@@ -1,0 +1,21 @@
+def count_check(
+    source_df,
+    target_df,
+    check_name="Source vs Target Count"
+):
+    source_count = source_df.count()
+    target_count = target_df.count()
+
+    difference = target_count - source_count
+
+    status = "PASS" if source_count == target_count else "FAIL"
+
+    result = {
+        "check_name": check_name,
+        "source_count": source_count,
+        "target_count": target_count,
+        "difference": difference,
+        "status": status
+    }
+
+    return result
