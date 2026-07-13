@@ -1,0 +1,12 @@
+from pyspark.sql.functions import *
+from pyspark.sql.window import Window
+
+duplication_rows=Window.partitionBy('id').orderBy(col('id').asc())
+df_rank_dataframe=df.withColumn('rnk',row_number().over(duplication_rows))
+display(df_rank_dataframe)
+
+valid_df=df_rank_dataframe.filter(col('rnk')==1)
+display(valid_df)
+
+quarentine_df=df_rank_dataframe.filter(col('rnk')!=1)
+display(quarentine_df)
