@@ -1,0 +1,281 @@
+ADF ERRORS-TELEKOM PROJECT
+------------------
+1-TRIGGER PROBLEMS
+------------------
+We faced an overlapping trigger issue in which the next scheduled pipeline started while the previous broadband usage load was still running. This caused both runs to process the same business date. We identified it through ADF Monitor and our audit table. We cancelled the duplicate run and cleaned its partial output. To prevent recurrence, we introduced pipeline concurrency control and a control-table check that blocks a second run for the same entity and business date.
+01:00 AM → First pipeline started
+02:00 AM → First pipeline was still running
+02:00 AM → Second pipeline started
+
+This caused:
+
+Duplicate processing
+High load on Oracle
+High load on Self-hosted IR
+Two runs writing into the same ADLS path
+Incorrect audit and watermark values
+
+How we overcame it
+We took the following actions:
+
+Cancelled the duplicate pipeline run.
+Checked whether it had already written any data.
+Removed or quarantined partial output from the second run.
+Continued the original pipeline.
+Performed row-count reconciliation after completion.
+
+Permanent prevention
+We introduced a control-table check at the beginning of the pipeline:
+
+Lookup existing run
+        ↓
+Is the same entity and business date already running?
+        ↓
+Yes → Stop or skip the new run
+No  → Start processing
+
+pipeline:
+Trigger starts pipeline
+        ↓
+Lookup existing active run
+        ↓
+If Condition
+   ├── Active run exists
+   │       ↓
+   │   Skip or Fail pipeline
+   │
+   └── No active run
+           ↓
+       Create InProgress record
+           ↓
+       Execute ingestion
+           ↓
+       Update status to Succeeded/Failed
+---------------------------------------------
+2. Self-hosted Integration Runtime problems
+---------------------------------------------
+Our Oracle database is outside Azure and is available through a private network. Therefore, ADF uses Self-hosted Integration Runtime to connect to Oracle.
+In our project, several Oracle ingestion pipelines remained in the queue and later failed because the Self-hosted IR server had high CPU and memory utilization.
+For example, 20 broadband pipelines started at the same time:
+All pipelines attempted to extract data from Oracle using the same Self-hosted IR node.
+The IR server could not handle all the activities simultaneously.
+
+Symptoms:
+Copy Activities remained in Queued status.
+Queue duration increased.
+Pipeline duration exceeded the SLA.
+Some Copy Activities timed out.
+Oracle extraction became slow.
+Integration Runtime showed high CPU or memory utilization.
+
+SOLUTION:
+We checked
+ADF Studio
+→ Manage
+→ Integration runtimes
+→ Self-hosted IR
+
+We also checked the Copy Activity details in ADF Monitor and compared:
+
+Queue duration
+Source read duration
+Data-transfer duration
+Sink write duration
+Queue duration was very high, which indicated that the activity was waiting for Self-hosted IR resources.
+
+How we overcame it:
+Reduced the number of Oracle pipelines running in parallel.
+Changed the ForEach batch count.
+Rescheduled large tables so they did not run together.
+Restarted the Self-hosted IR service when required.
+Added an additional IR node for availability and capacity.
+Separated small and large table ingestion.
+-------------------------------------
+3. Linked Service connection problems
+-------------------------------------
+In our project, all Oracle ingestion pipelines suddenly failed because the Oracle password had expired.
+The Oracle Linked Service was retrieving the password from Azure Key Vault, but the secret had not been updated after the password change.
+The pipelines failed with an error similar to:
+Invalid username or password
+Login denied
+Authentication failed
+
+How we identified it
+We:
+Opened the failed Copy Activity in ADF Monitor.
+Checked the activity error.
+Tested the Oracle Linked Service connection.
+Confirmed that the same Linked Service was used by all failed pipelines.
+Checked the Key Vault secret version.
+Coordinated with the Oracle team to confirm the password change.
+
+Because many pipelines failed at the same time with the same authentication error, it indicated a shared connection problem rather than a table-specific issue.
+How we overcame it
+We:
+Obtained the updated Oracle credential through the approved process.
+Updated the Key Vault secret.
+Retested the Linked Service.
+Reran the failed ingestion pipelines using the original business date and batch window.
+Verified that no partial data had been left behind.
+-------------------------
+4. Copy Activity problems
+-------------------------
+In our project, a broadband-product ingestion pipeline failed because the source team changed the datatype of a column.
+Previously, Oracle returned:PRODUCT_SPEED = 500
+Later, the source started returning:"500 MBPS"
+ADF expected a numeric value based on the existing dataset mapping. The pipeline failed with a datatype-conversion error.
+
+How we identified it:
+WE Opened->
+ADF Studio
+→ Monitor
+→ Pipeline run
+→ Copy Activity
+→ Error
+
+We then checked:
+
+Source query
+Dataset schema
+Copy Activity mappings
+Source-column datatype
+Sample source values
+Sink-column datatype
+
+We found that the source datatype and format no longer matched ADF’s expected mapping.
+How we overcame it
+Depending on the requirement, we had two possible solutions.
+Option 1: Correct the source query
+We extracted only the numeric portion or explicitly cast the column into the expected datatype.
+Option 2: Accept the new datatype
+If "500 Mbps" was the approved business value, we changed the target datatype and updated the ADF mapping.
+We then:
+
+Removed the incomplete batch output.
+Reran the failed Copy Activity.
+Compared source and target row counts.
+Confirmed that the complete file was loaded.
+
+Another common example: Copy timeout
+A broadband usage table contained millions of rows. A single extraction query attempted to copy everything at once and exceeded the activity timeout.
+We overcame it by:
+Using incremental loading
+Partitioning the extraction by date or key range
+Reducing simultaneous Oracle queries
+Increasing timeout only after optimizing the extraction
+Monitoring rows per second and Copy Activity duration
+----------------------------
+5. Execute Pipeline problems
+----------------------------
+Execute Pipeline Activity allows a parent pipeline to call a child pipeline
+
+Master Pipeline
+    ↓
+Execute Ingestion Pipeline
+    ↓
+Execute Transformation Pipeline
+    ↓
+Execute Synapse Load Pipeline
+
+In our project, the transformation pipeline started before the broadband-order ingestion pipeline completed.
+This happened because the Execute Pipeline Activity had:Wait on completion = False
+
+How we identified it
+We checked:
+Parent pipeline run
+Child pipeline run
+Start and end times
+Execute Pipeline Activity settings
+Wait on completion setting
+Ingestion audit status
+
+We noticed that transformation started while ingestion was still In Progress.
+How we overcame it
+We:
+Stopped the transformation run.
+Allowed ingestion to finish.
+Validated the raw-layer row count.
+Reran transformation for the same BatchId.
+Changed Wait on completion to True.
+Connected transformation through an Upon Success dependency.
+
+we also added this
+Is ingestion status = Succeeded?
+        ↓
+Yes → Continue
+No  → Fail or wait
+-------------------------------
+6.Dependency-condition problems
+-------------------------------
+ADF uses dependency conditions to decide when the next activity should run.
+The main conditions are:
+Upon Success
+Upon Failure
+Upon Completion
+Upon Skip
+
+In our project, the Databricks transformation activity started even though the Oracle Copy Activity had failed.
+How we identified it
+In ADF Monitor:
+Copy Activity status was Failed.
+Transformation Activity status was In Progress or Failed.
+We inspected the pipeline canvas.
+The dependency was configured as Upon Completion.
+SOLUTION:
+Copy Broadband Orders
+        ↓ Upon Success
+Transformation
+----------------------------------------
+7.Get Metadata and file-arrival problems
+----------------------------------------
+Get Metadata Activity checks information about files and folders, such as:
+Whether a file exists
+File size
+Last-modified time
+Child files inside a folder
+
+In our project, an hourly broadband-fault file was processed before the source system finished uploading it.
+For example, the complete file should contain one million records. ADF detected the file as soon as it appeared in the folder, but only 300,000 records had been uploaded at that time.
+The pipeline technically succeeded, but the data was incomplete.
+How we identified it
+We observed:
+Source count: 1,000,000
+ADF copied count: 300,000
+File size was lower than expected
+The file’s modification time kept changing
+The trigger started as soon as the file appeared
+This was a silent data issue because the ADF activity itself did not necessarily fail.
+How we overcame it
+We used a completion-marker approach.
+The source system first uploads the data file:broadband_faults_20260720_1000.csv
+After the file is fully uploaded, it creates:broadband_faults_20260720_1000.done
+ADF checks for the .done file using Get Metadata.
+Get Metadata on .done file
+        ↓
+Does it exist?
+        ├── Yes → Process the data file
+        └── No  → Wait and check again
+		
+We also checked:
+File exists
+File size is greater than zero
+Expected file name is present
+File has stopped changing
+File has not already been processed
+
+Missing-file scenario
+If the file is expected by 2:00 AM but is not available:
+Get Metadata
+    ↓
+File does not exist
+    ↓
+Wait 10 minutes
+    ↓
+Check again
+
+After a limited number of checks, the pipeline:
+Records the file as late or missing.
+Fails the ingestion stage.
+Sends an alert.
+Does not start downstream processing.
+
