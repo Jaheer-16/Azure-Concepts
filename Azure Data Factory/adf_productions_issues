@@ -1,0 +1,101 @@
+In our Telekom broadband project, common production issues include missing or incomplete CSV files, Self-hosted Integration Runtime outages, SQL Server connectivity problems, Copy Activity timeouts, source schema changes, incorrect parameters, overlapping pipeline runs, watermark errors, child-pipeline dependency issues and audit update failures.
+Whenever an issue occurs, we first check ADF Monitor and collect the pipeline Run ID, failed activity, input, output, error details, rows read, rows copied, queue duration, Batch ID and business date. We then classify whether the problem belongs to ADF, the source system, SHIR infrastructure, network or data quality.
+We avoid rerunning the complete pipeline without checking partial data. For example, if Copy Activity succeeds but only the audit update fails, we rerun only the audit step. If the CSV is missing, support coordinates with the source/backend team. If SHIR is overloaded, we reduce concurrency and scale the IR. We use batch-specific paths, control tables, stage-level statuses, row-count reconciliation and targeted restarts to prevent duplicate or missing data.
+----------------------------------------------------------------
+Production issue: Self-hosted Integration Runtime was overloaded
+----------------------------------------------------------------
+In our Telekom broadband project, the source SQL Server was hosted inside the Telekom data centre. Because the database was in a private network, ADF connected to it through Self-hosted Integration Runtime. Every day, multiple pipelines extracted customer, product, subscription, billing, and broadband usage data from SQL Server and loaded it into ADLS Gen2.
+
+One day, many SQL Server ingestion pipelines started at approximately the same time
+Customer pipeline
+Product pipeline
+Subscription pipeline
+Billing pipeline
+Broadband usage pipeline
+        ↓
+All used the same Self-hosted IR
+
+The Self-hosted IR server did not have enough available CPU and memory to execute all the Copy Activities simultaneously.
+As a result:
+Some Copy Activities remained in Queued status.
+The broadband usage pipeline took much longer than usual.
+A few activities eventually timed out.
+The daily ingestion SLA was at risk.
+
+How did we identify the issue?
+ADF Studio
+→ Monitor
+→ Pipeline runs
+→ Activity runs
+→ Copy Activity details
+
+This indicated that SQL Server was not necessarily the main bottleneck. The activities were waiting for Self-hosted IR resources.
+We then checked:
+ADF Studio
+→ Manage
+→ Integration Runtimes
+→ IR_SH_Telekom
+
+We found that:
+The IR node was online.
+CPU and memory utilization were high.
+Too many activities were running concurrently.
+Several Copy Activities were waiting in the queue
+
+How did we resolve it?
+As an immediate solution, we:
+
+Paused or cancelled noncritical pipeline runs.
+Allowed the critical broadband usage pipeline to continue.
+Reduced the number of pipelines running in parallel.
+Reran only the failed entities after checking for partial data.
+Validated source and target row counts after recovery.
+Before rerunning, we checked whether any data had already been written into the ADLS batch path. This prevented duplicate ingestion.
+
+What permanent fix did we implement?
+We grouped tables according to their size:
+We then:
+
+Reduced the ForEach batch count.
+Scheduled large tables separately.
+Added another Self-hosted IR node for high availability and capacity.
+Configured monitoring for IR CPU, memory, node availability, and queue duration.
+Added early-warning alerts before the ingestion SLA deadline.
+
+In our Telekom broadband project, we faced a production issue where several SQL Server ingestion pipelines started simultaneously and overloaded the Self-hosted Integration Runtime. Some Copy Activities remained in the queued state, and the broadband usage pipeline was at risk of missing its SLA.
+We investigated the issue in ADF Monitor and found that the Copy Activity queue duration was very high, while the source-read and data-transfer durations were normal after execution started. We then checked the Self-hosted IR and found high CPU and memory utilization.
+As an immediate action, we paused noncritical pipeline runs, prioritized the critical pipeline, and reran only the failed entities after checking for partial data. As a permanent fix, we reduced pipeline concurrency, grouped tables by size, scheduled large tables separately, and added another Self-hosted IR node. We also introduced monitoring and SLA alerts for IR queue duration and node availability. After recovery, we performed source-to-target row-count reconciliation to ensure that there was no missing or duplicate data.
+
+-------------------------------------------
+ source schema change or schema-drift issue
+-------------------------------------------
+I updated the Copy Activity column mapping and the Bronze sink schema from Integer to String after confirming the schema change with the source team
+Our source SQL Server originally provided:
+Column: PRODUCT_SPEED
+Value:  500
+Type:   INT
+The source team later changed it to:
+Column: PRODUCT_SPEED
+Value:  500 Mbps
+Type:   VARCHAR
+When the production pipeline ran, ADF could not convert "500 Mbps" into an integer. Therefore, the Copy Activity failed with a datatype-conversion/schema-mapping error.
+ADF supports explicit source-to-sink column and datatype mappings through the Copy Activity’s Mapping tab.
+
+How you identified it->
+I received the pipeline-failure alert.
+I opened ADF Studio → Monitor.
+I selected the failed pipeline and Copy Activity.
+I checked the activity’s input, output, and error message.
+The error showed that ADF could not convert PRODUCT_SPEED from String to Integer.
+I checked the SQL Server source schema and sample data.
+I found that the source value had changed from 500 to 500 Mbps.
+I confirmed with the source team that it was an intended permanent change.
+
+In our Telekom broadband project, we faced a production schema-change issue in an SQL Server ingestion pipeline. The PRODUCT_SPEED field was originally an integer with values such as 500. The source team later changed the field to a string and started sending values such as 500 Mbps. Our ADF Copy Activity and Bronze sink schema still expected an integer, so the pipeline failed with a datatype-conversion error.
+I identified the issue through ADF Monitor by reviewing the failed Copy Activity’s error details, input, and column mapping. I then checked the SQL Server source datatype and sample records and confirmed the schema change with the source team.
+After receiving confirmation, I updated the Copy Activity’s explicit mapping and the Bronze sink schema from Integer to String. We preserved the source value in a field called PRODUCT_SPEED_RAW. During downstream transformation, we separated the numeric value and unit and standardized the speed in Mbps.
+Before rerunning, we checked and cleaned the partially written batch path to prevent duplicates. We then reran the affected business date and reconciled the source and target row counts. As a preventive action, we introduced schema validation, explicit mappings, source-change communication, and quarantine handling for incompatible records.
+
+Short interview version
+
+We faced a source schema-change issue where PRODUCT_SPEED changed from an integer value like 500 to a string value like 500 Mbps. The ADF Copy Activity failed because the mapping and sink expected an integer. I confirmed the change with the source team, updated the Copy Activity mapping and Bronze sink schema to String, cleaned the partial batch, and reran the pipeline. We kept the raw value in Bronze and parsed the number and unit during transformation. We also added schema validation to detect similar changes earlier.
