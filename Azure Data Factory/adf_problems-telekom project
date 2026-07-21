@@ -10,7 +10,7 @@ We faced an overlapping trigger issue in which the next scheduled pipeline start
 This caused:
 
 Duplicate processing
-High load on Oracle
+High load on Sql Server
 High load on Self-hosted IR
 Two runs writing into the same ADLS path
 Incorrect audit and watermark values
@@ -54,10 +54,10 @@ If Condition
 ---------------------------------------------
 2. Self-hosted Integration Runtime problems
 ---------------------------------------------
-Our Oracle database is outside Azure and is available through a private network. Therefore, ADF uses Self-hosted Integration Runtime to connect to Oracle.
-In our project, several Oracle ingestion pipelines remained in the queue and later failed because the Self-hosted IR server had high CPU and memory utilization.
+Our Sql Server database is outside Azure and is available through a private network. Therefore, ADF uses Self-hosted Integration Runtime to connect to Sql Server.
+In our project, several Sql Server ingestion pipelines remained in the queue and later failed because the Self-hosted IR server had high CPU and memory utilization.
 For example, 20 broadband pipelines started at the same time:
-All pipelines attempted to extract data from Oracle using the same Self-hosted IR node.
+All pipelines attempted to extract data from Sql Server using the same Self-hosted IR node.
 The IR server could not handle all the activities simultaneously.
 
 Symptoms:
@@ -65,7 +65,7 @@ Copy Activities remained in Queued status.
 Queue duration increased.
 Pipeline duration exceeded the SLA.
 Some Copy Activities timed out.
-Oracle extraction became slow.
+Sql Server extraction became slow.
 Integration Runtime showed high CPU or memory utilization.
 
 SOLUTION:
@@ -84,7 +84,7 @@ Sink write duration
 Queue duration was very high, which indicated that the activity was waiting for Self-hosted IR resources.
 
 How we overcame it:
-Reduced the number of Oracle pipelines running in parallel.
+Reduced the number of Sql Server pipelines running in parallel.
 Changed the ForEach batch count.
 Rescheduled large tables so they did not run together.
 Restarted the Self-hosted IR service when required.
@@ -93,8 +93,8 @@ Separated small and large table ingestion.
 -------------------------------------
 3. Linked Service connection problems
 -------------------------------------
-In our project, all Oracle ingestion pipelines suddenly failed because the Oracle password had expired.
-The Oracle Linked Service was retrieving the password from Azure Key Vault, but the secret had not been updated after the password change.
+In our project, all Sql Server ingestion pipelines suddenly failed because the Sql Server password had expired.
+The Sql Server Linked Service was retrieving the password from Azure Key Vault, but the secret had not been updated after the password change.
 The pipelines failed with an error similar to:
 Invalid username or password
 Login denied
@@ -104,15 +104,15 @@ How we identified it
 We:
 Opened the failed Copy Activity in ADF Monitor.
 Checked the activity error.
-Tested the Oracle Linked Service connection.
+Tested the Sql Server Linked Service connection.
 Confirmed that the same Linked Service was used by all failed pipelines.
 Checked the Key Vault secret version.
-Coordinated with the Oracle team to confirm the password change.
+Coordinated with the Sql Server team to confirm the password change.
 
 Because many pipelines failed at the same time with the same authentication error, it indicated a shared connection problem rather than a table-specific issue.
 How we overcame it
 We:
-Obtained the updated Oracle credential through the approved process.
+Obtained the updated Sql Server credential through the approved process.
 Updated the Key Vault secret.
 Retested the Linked Service.
 Reran the failed ingestion pipelines using the original business date and batch window.
@@ -121,7 +121,7 @@ Verified that no partial data had been left behind.
 4. Copy Activity problems
 -------------------------
 In our project, a broadband-product ingestion pipeline failed because the source team changed the datatype of a column.
-Previously, Oracle returned:PRODUCT_SPEED = 500
+Previously, Sql Server returned:PRODUCT_SPEED = 500
 Later, the source started returning:"500 MBPS"
 ADF expected a numeric value based on the existing dataset mapping. The pipeline failed with a datatype-conversion error.
 
@@ -161,7 +161,7 @@ A broadband usage table contained millions of rows. A single extraction query at
 We overcame it by:
 Using incremental loading
 Partitioning the extraction by date or key range
-Reducing simultaneous Oracle queries
+Reducing simultaneous Sql Server queries
 Increasing timeout only after optimizing the extraction
 Monitoring rows per second and Copy Activity duration
 ----------------------------
@@ -214,7 +214,7 @@ Upon Failure
 Upon Completion
 Upon Skip
 
-In our project, the Databricks transformation activity started even though the Oracle Copy Activity had failed.
+In our project, the Databricks transformation activity started even though the Sql Server Copy Activity had failed.
 How we identified it
 In ADF Monitor:
 Copy Activity status was Failed.
