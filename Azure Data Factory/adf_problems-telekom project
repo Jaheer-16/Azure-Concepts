@@ -279,3 +279,25 @@ Fails the ingestion stage.
 Sends an alert.
 Does not start downstream processing.
 
+Trigger at 6:00 AM
+        ↓
+Validation_Wait_For_Done_File
+    ├── Success
+    │      ↓
+    │   Get_Metadata_CSV_File
+    │      ↓
+    │   Copy_HTTP_CSV_To_ADLS
+    │
+    └── Failure after timeout
+           ↓
+        SP_Update_File_Missing
+           ↓
+        Web_Send_Support_Alert
+           ↓
+        Fail_Pipeline
+		
+		
+here at pipeline level we will add dialy schedule trigger at 6am
+and at validataion activity level we will configure timeout as 1 hour and sleep 900 seconds
+then once trigger started this pipeline will run for 1hour with 15 minutes gaps.
+
