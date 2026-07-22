@@ -1,0 +1,158 @@
+-------------------------------------
+PIPELINE-ETL-BROADBAND_PRODUCTS_DATA
+-------------------------------------
+Telekom SQL Server
+        ↓
+ADF using Self-hosted Integration Runtime
+        ↓
+ADLS Gen2 Bronze as Parquet
+        ↓
+ADF invokes Databricks
+        ↓
+Silver managed Delta table
+        ↓
+Gold managed Delta table
+        ↓
+Batch-specific Parquet export
+        ↓
+ADF Copy Activity
+        ↓
+Synapse staging table
+        ↓
+Stored procedure: update + insert
+        ↓
+Final DimBroadbandProduct table
+        ↓
+Audit and watermark update
+
+1. Pipeline trigger and audit
+The ADF pipeline runs daily through a schedule trigger.
+At the beginning of the pipeline, we generate or pass:
+Business date
+Batch ID
+Source table name
+Target folder
+Previous watermark
+Current upper watermark
+
+2. Extract incremental product data
+The broadband product data is stored in SQL Server inside the Telekom data centre. Because the database is in a private network, ADF connects through Self-hosted Integration Runtime.
+The pipeline first reads the last successful watermark from the control table.
+
+The Copy Activity extracts only new and modified product records:
+CODE->SELECT
+    ProductId,
+    ProductName,
+    ProductCategory,
+    ProductSpeed,
+    MonthlyPrice,
+    ContractPeriod,
+    ProductStatus,
+    ModifiedTimestamp
+FROM dbo.BroadbandProduct
+WHERE ModifiedTimestamp > @PreviousWatermark
+  AND ModifiedTimestamp <= @UpperWatermark;
+This is an incremental load. We do not extract the complete historical product table every day
+
+3. Load data into the Bronze layer
+ADF writes the extracted SQL Server records into ADLS Gen2 as Parquet files.
+Bronze preserves the source data with minimal changes.
+We also maintain technical information such as:
+Batch ID
+Business date
+Source-system name
+Ingestion timestamp
+ADF Pipeline Run ID
+
+4. Transform Bronze into Silver
+After ingestion succeeds, ADF invokes a Databricks notebook.
+The notebook performs:
+Product ID null validation
+Duplicate Product ID checks
+Datatype standardization
+Product status validation
+Price validation
+Broadband-speed parsing
+Invalid-record quarantine
+Addition of audit columns
+
+5. Create the Gold product table
+A second Databricks transformation creates the business-ready Gold managed Delta table.
+
+6. Prepare the incremental Gold batch for Synapse
+Because Gold is a Unity Catalog managed Delta table, we access it using its catalog, schema, and table name rather than its internal storage path.
+
+ADF invokes a Databricks notebook that:
+Reads the managed Gold table.
+Filters the current Batch ID.
+Writes only the current product changes as Parquet files to an external ADLS export folder.
+
+7. Load data into Synapse staging
+After loading, we validate:
+
+Gold export count equals Synapse staging count
+Product ID is not null
+No unexpected duplicate Product IDs exist
+Monthly price is valid
+Product status is within the accepted values
+Batch ID and business date are correct
+
+If validation fails, ADF stops the process, updates the audit status, sends an alert, and does not publish data into the final table.
+
+8. Publish into the final Synapse product table
+After validation passes, ADF calls a Synapse stored procedure.
+
+Product already exists
+→ Update the existing product
+Product does not exist
+→ Insert a new product
+
+CODE->UPDATE target
+SET
+    target.ProductName = source.ProductName,
+    target.ProductCategory = source.ProductCategory,
+    target.ProductSpeedMbps = source.ProductSpeedMbps,
+    target.MonthlyPrice = source.MonthlyPrice,
+    target.ContractPeriod = source.ContractPeriod,
+    target.ProductStatus = source.ProductStatus,
+    target.IsActive = source.IsActive,
+    target.ModifiedTimestamp = source.ModifiedTimestamp,
+    target.LastBatchId = source.BatchId
+FROM dbo.DimBroadbandProduct AS target
+INNER JOIN stg.BroadbandProduct AS source
+    ON target.ProductId = source.ProductId
+WHERE source.BatchId = @BatchId
+  AND source.ModifiedTimestamp > target.ModifiedTimestamp;
+  
+New products are inserted using NOT EXISTS.
+For this example, we use SCD Type 1, meaning the latest product attributes overwrite the previous values.
+
+9. Update audit and watermark
+Only after the final Synapse publication and reconciliation succeed does ADF call the final Stored Procedure Activity.
+If any pipeline stage fails, the watermark remains unchanged. This allows us to restart the same batch without missing product changes.
+
+10. Failure handling and restart
+We maintain stage-level statuses:
+Ingestion       = Completed
+Transformation  = Completed
+GoldValidation  = Completed
+SynapseLoad     = Failed
+OverallStatus   = Failed
+
+If only the Synapse load fails:
+
+We do not rerun SQL Server extraction.
+We do not rerun Bronze-to-Gold transformation.
+We verify the existing Parquet export.
+We remove partial staging records for the Batch ID.
+We rerun only the Synapse stage.
+We validate the counts.
+We update the watermark after success.
+This makes the pipeline incremental, idempotent, traceable, and restartable.
+
+
+OVERVIEW->
+Yes, I built an end-to-end ETL pipeline for broadband product data. The source was SQL Server hosted in the Telekom data centre, so ADF connected to it through Self-hosted Integration Runtime. The pipeline read the previous watermark and extracted only new and modified broadband product records.
+ADF loaded the data into ADLS Gen2 Bronze as Parquet files using business-date and Batch-ID-based folders. It then invoked Databricks notebooks to validate Product IDs, handle duplicates, standardize product status and price, and convert speed values such as 500 Mbps and 1 Gbps into a standard Mbps value. The transformed data was written into managed Silver and Gold Delta tables.
+For the Synapse load, Databricks filtered the current Gold Batch ID and wrote it as Parquet into a temporary external ADLS export folder. ADF copied that batch into a Synapse staging table. We performed row-count reconciliation, null-key checks, duplicate Product ID checks, and business-rule validation.
+After validation, ADF called a stored procedure that updated existing products and inserted new products into DimBroadbandProduct. Finally, we updated the audit status and warehouse watermark only after the complete ETL flow succeeded. If only the Synapse stage failed, we reused the existing Parquet export and restarted from that stage rather than rerunning the entire pipeline.
