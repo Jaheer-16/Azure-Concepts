@@ -1,0 +1,70 @@
+----------------------------------------------------
+Export managed Gold data to ADLS, then load Synapse
+----------------------------------------------------
+Databricks reads the managed Gold table using its table name, selects only the required daily records, and writes them into a separate ADLS folder as Parquet files. ADF then copies those Parquet files into a Synapse staging table. Finally, a Synapse stored procedure validates and moves the data into the final warehouse table.
+
+
+Managed Gold Delta table
+        ↓
+Databricks reads table by name
+        ↓
+Filter current Batch ID / date
+        ↓
+Write filtered data to external ADLS export folder
+        ↓
+ADF Copy Activity
+        ↓
+Synapse staging table
+        ↓
+Validation
+        ↓
+Update existing records + insert new records
+        ↓
+Final Synapse table
+
+In our Telekom broadband project, the Gold layer was maintained as Unity Catalog managed Delta tables in Databricks. Because it was a managed table, we accessed it using the catalog, schema, and table name, rather than depending on its internal ADLS path.
+To load incremental data into Synapse Dedicated SQL Pool, ADF first called a Databricks notebook. The notebook read the Gold table, filtered only the current records using the Batch ID, business date, or modified timestamp, and wrote those records as Parquet files into a controlled, batch-specific ADLS export folder.
+ADF then used a Copy Activity to move the Parquet files from the export folder into a Synapse staging table. After loading, we compared the Gold export count with the Synapse staging count and checked for null or duplicate business keys.
+If validation passed, ADF called a Synapse stored procedure. For existing customer or product records, the procedure updated the final table. For new records, it inserted them. Finally, ADF updated the warehouse watermark and audit status to Completed.
+We used the external export folder as a temporary interface between the managed Gold table and Synapse. This allowed us to process only the current incremental batch, validate the data, and restart the warehouse load without reading the complete Gold table again
+
+
+
+ALTERNATE-APPROACH
+instead of creating a separate Parquet export folder, ADF can use the Azure Databricks Delta Lake connector to read the managed Gold Delta table directly through Databricks.
+ADF uses Databricks compute to read the Delta table and then transfers the result to the destination, such as a Synapse staging table
+
+Managed Gold Delta table
+        ↓
+ADF Copy Activity
+using Databricks Delta Lake connector
+        ↓
+Databricks compute reads the table
+        ↓
+Synapse staging table
+        ↓
+Validation
+        ↓
+Stored procedure
+        ↓
+Final Synapse table
+        ↓
+Update watermark
+``
+
+An alternate approach is to use the Azure Databricks Delta Lake connector directly in ADF. In this design, the ADF Copy Activity connects to Databricks and reads the managed Gold Delta table using its catalog, schema, and table name, so we do not need the table’s internal ADLS path. We apply a Batch ID or modified-timestamp filter to select only the incremental records and copy them into a Synapse staging table. After staging reconciliation and duplicate-key validation, ADF calls a stored procedure to update existing records and insert new records into the final warehouse table. Finally, we update the warehouse watermark.
+This approach avoids maintaining a separate Parquet export folder and is simpler for standard loads. However, it depends on Databricks compute during data movement. For very large or recovery-sensitive loads, we may prefer a batch-specific Parquet export because it provides a reusable checkpoint for Synapse retries.
+
+
+
+RECOMMENDED-Export managed Gold data to ADLS, then load Synapse
+WHY-
+Better restartability: If the Synapse load fails, reuse the existing Parquet export instead of reading the Gold table again.
+Clear batch checkpoint: Each folder represents one Batch ID and business date.
+Easier reconciliation: Compare exported rows with Synapse staging rows.
+Better troubleshooting: You can inspect exactly what was sent to Synapse.
+Load isolation: Synapse receives only the current incremental batch.
+No dependency on managed-table internals: ADF and Synapse never need the managed Gold table’s physical path.
+Suitable for large production loads: Parquet is compressed and optimized for analytical processing.
+Controlled recovery: Partial staging data can be deleted by Batch ID and reloaded from the same export.
+Storage is manageable: Keep exports temporarily—for example, seven days—and remove them through an ADLS lifecycle policy.
