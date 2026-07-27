@@ -1,0 +1,144 @@
+Managed vs External Tables in Azure Databricks
+
+Managed table = Databricks manages the table metadata and the data lifecycle.
+
+A managed table is a table for which Unity Catalog manages:
+Metadata
+Storage placement
+Data files
+Data lifecycle
+Optimization and maintenance
+You provide the table name, but you normally do not provide the exact ADLS directory.
+
+code to create managed table(using sql):
+CREATE TABLE catalog.schema.table
+(
+    customer_id BIGINT,
+    customer_name STRING,
+    customer_city STRING,
+    modified_timestamp TIMESTAMP
+)
+USING DELTA;
+
+Unity Catalog selects a directory under the managed storage location of the catalog or schema
+
+Create or write a managed table using PySpark
+from pyspark.sql import functions as F
+
+customer_df = (
+    spark.table("project_catalog.bronze.customer_raw")
+    .select(
+        F.col("custid").cast("long").alias("customer_id"),
+        F.trim("custname").alias("customer_name"),
+        F.trim("custcity").alias("customer_city"),
+        F.current_timestamp().alias("modified_timestamp")
+    )
+)
+
+(
+    customer_df.write
+    .format("delta")
+    .mode("overwrite")
+    .saveAsTable("project_catalog.silver.customer")
+)
+
+For a Unity Catalog managed table, Databricks removes the table and deletes the underlying data files after the configured recovery period expires. The default recovery period is currently seven days and can be configured at the catalog or schema level
+
+Advantages of managed tables
+.You do not need to manually select and maintain a separate ADLS directory for every table.
+.Unity Catalog managed tables support features such as predictive optimization, including automated OPTIMIZE, VACUUM, and statistics collection when configured
+.Databricks can optimize:
+File sizes
+Statistics
+Data layout
+Query planning
+Metadata caching
+
+.Strong governance-Users access the table through:catalog.schema.table->This helps Unity Catalog enforce permissions, lineage, and governance.
+
+---------------
+External table
+---------------
+External table = Unity Catalog manages the table definition, but our project controls the underlying files and storage location.
+adls path-->abfss://silver@projectstorage.dfs.core.windows.net/customer/
+
+Create an external Delta table using SQL
+
+CREATE TABLE project_catalog.silver.customer_external
+(
+    customer_id BIGINT,
+    customer_name STRING,
+    customer_city STRING,
+    modified_timestamp TIMESTAMP
+)
+USING DELTA
+LOCATION 'abfss://silver@projectstorage.dfs.core.windows.net/customer_external/';
+
+suppose already delta files exist
+ 
+CREATE TABLE project_catalog.silver.customer_external
+USING DELTA
+LOCATION 'abfss://silver@projectstorage.dfs.core.windows.net/customer_external/';
+
+You do not need to define the columns because Databricks can read the schema from the Delta transaction log.
+This is one of the most common external-table scenarios.
+
+Write an external table using PySpark
+
+external_path = (
+    "abfss://silver@projectstorage.dfs.core.windows.net/"
+    "customer_external/"
+)
+
+(
+    customer_df.write
+    .format("delta")
+    .mode("overwrite")
+    .save(external_path)
+)
+
+Then register the location as a Unity Catalog table:
+spark.sql(f"""
+    CREATE TABLE IF NOT EXISTS
+        project_catalog.silver.customer_external
+    USING DELTA
+    LOCATION '{external_path}'
+""")
+
+Alternative PySpark saveAsTable() pattern
+
+external_path = (
+    "abfss://silver@projectstorage.dfs.core.windows.net/"
+    "customer_external/"
+)
+
+(
+    customer_df.write
+    .format("delta")
+    .mode("overwrite")
+    .option("path", external_path)
+    .saveAsTable(
+        "project_catalog.silver.customer_external"
+    )
+)
+
+Delete external data permanently
+Dropping the table is not enough. You must remove the underlying files separately, using an approved storage-lifecycle process.
+
+dbutils.fs.rm(
+    "abfss://silver@projectstorage.dfs.core.windows.net/customer_external/",
+    recurse=True
+)
+
+This permanently deletes data, so it should be carefully controlled. In production, deletion is often handled through storage policies, approved cleanup workflows, or infrastructure processes rather than an ad hoc notebook command.
+
+Advantages of external tables
+.If someone drops the table registration, the files stay in ADLS.
+.External tables are useful when Delta, Parquet, CSV, JSON, Avro, ORC, or text data already exists in cloud storage. Unity Catalog external tables support multiple file formats
+
+
+How to check whether a table is managed or external-->DESCRIBE TABLE EXTENDED
+                                                      project_catalog.silver.customer;
+													  
+DESCRIBE DETAIL(to examine)
+project_catalog.silver.customer;
