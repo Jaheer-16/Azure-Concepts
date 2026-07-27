@@ -1,0 +1,47 @@
+delta table
+
+A Delta table stores data as Parquet files and maintains a Delta transaction log named _delta_log.
+
+Delta table
+├── Parquet data files
+└── _delta_log
+    ├── Table versions
+    ├── Schema details
+    ├── Added/removed files
+    └── Operation history
+	
+The transaction log provides database-like reliability—including ACID transactions, table versions, schema management, updates, deletes, and merges
+
+Delta = Parquet files + transaction log + reliability features.
+
+Important Delta table features:
+1. ACID transactions
+ACID guarantees safe and reliable writes:
+
+Atomicity: A write succeeds completely or fails completely.
+Consistency: Data follows the table schema and rules.
+Isolation: Concurrent jobs do not see incomplete changes.
+Durability: Committed data remains available.
+
+2. Schema enforcement
+Delta checks whether incoming data is compatible with the target schema.
+If incoming data has an incompatible schema, the write can fail rather than silently corrupting the table.
+
+3. Schema evolution
+If a legitimate new column arrives, you can allow the table schema to evolve.
+With mergeSchema, the new email column can be added.
+
+4. Update
+delta tables support row level updates
+
+5.Merge/upsert
+
+6.Table history
+Every modifying operation creates a new Delta table version. History can be used for auditing, time travel, and recovery
+DESCRIBE HISTORY project_catalog.silver.customer;
+
+7. Time travel
+Time travel allows you to query an older table version.
+SELECT *
+FROM project_catalog.silver.customer
+VERSION AS OF 2;
