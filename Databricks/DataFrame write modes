@@ -1,0 +1,77 @@
+In PySpark/Databricks, the main DataFrame write modes are:
+
+append
+overwrite
+error / errorifexists
+ignore
+
+1.append-Adds new records to the existing table without deleting old records.
+append does not automatically check for duplicate business keys. If the same records arrive again, duplicates may be inserted
+
+df.write.format('delta').mode('append').option('path',external_path).saveAsTable(catalog_silver.schema_silver.table_customer)
+
+2. overwrite
+Replaces the existing table data with the DataFrame data.
+
+(
+    df.write
+    .format("delta")
+    .mode("overwrite")
+    .saveAsTable("silver_catalog.silver_schema.customer")
+)
+
+Use in real projects
+
+Full-load pipelines
+Rebuilding Gold summary tables
+Small lookup/reference tables
+Development and testing
+
+3. error or errorifexists
+Raises an error if the table or output already exists.
+(
+    df.write
+    .format("delta")
+    .mode("error")
+    .saveAsTable("silver_catalog.silver_schema.customer")
+)
+
+This is also the default behavior when .mode() is not specified:
+
+Use in real projects
+Creating a table only once
+Preventing accidental replacement
+Initial table deployment
+Catching duplicate execution errors
+
+4. ignore
+If the table already exists, Spark skips the write without raising an error.
+(
+    df.write
+    .format("delta")
+    .mode("ignore")
+    .saveAsTable("silver_catalog.silver_schema.customer")
+)
+
+Use in real projects
+Create-once initialization
+Optional reference tables
+Idempotent setup notebooks
+Be careful: ignore may hide the fact that new incoming data was not written.
+
+Partial overwrite using replaceWhere
+Sometimes you should replace only one date or partition instead of the complete table.
+
+(
+    df.write
+    .format("delta")
+    .mode("overwrite")
+    .option(
+        "replaceWhere",
+        "business_date = '2026-07-28'"
+    )
+    .saveAsTable("silver_catalog.silver_schema.transactions")
+)
+
+save() writes DataFrame data to a storage path.
+saveAsTable() writes data and registers it as a table in Unity Catalog or the metastore.
