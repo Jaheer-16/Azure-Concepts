@@ -1,0 +1,40 @@
+Column masking 
+
+The original value to authorized users
+A masked value to unauthorized users
+The objective is to protect sensitive customer information
+---------------------------------------------------
+Real-project example: Mask customer email and phone
+---------------------------------------------------
+1. Create masking functions
+
+-- Email masking function
+CREATE OR REPLACE FUNCTION security_catalog.masking.mask_email(
+    email_value STRING
+)
+RETURN
+    CASE
+        -- Authorized group sees the original email
+        WHEN is_account_group_member('pii_authorized_users')
+            THEN email_value
+
+        WHEN email_value IS NULL
+            THEN NULL
+
+        WHEN INSTR(email_value, '@') > 1
+            THEN CONCAT(
+                LEFT(email_value, 1),
+                REPEAT('*', INSTR(email_value, '@') - 2),
+                SUBSTRING(email_value, INSTR(email_value, '@'))
+            )
+
+        ELSE '***MASKED***'
+    END;
+
+
+2. Apply masks to the Silver table
+
+ALTER TABLE customer_catalog.silver.customer
+ALTER COLUMN email
+SET MASK security_catalog.masking.mask_email;
+``
