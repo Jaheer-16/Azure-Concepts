@@ -1,0 +1,189 @@
+Dataset structure
+1. Customer basic information
+Download customer basic information.csv
+Plain Text1Rows: 1,0042Simulated source: Telekom SQL Server3ADF connectivity: Self-hosted Integration Runtime4Bronze format: ParquetShow more lines
+Important columns:
+Plain Text1customer_id2first_name3last_name4email5phone6city7region8customer_segment9signup_date10customer_status11credit_score12modified_timestampShow more lines
+Intentional issues:
+
+Duplicate Customer IDs
+Invalid and missing email addresses
+Invalid phone numbers
+Mixed statuses such as ACTIVE, active, and Active
+Missing credit scores
+Customer segment casing differences
+
+Load this CSV into your practice SQL Server table, then ingest it through ADF as though it were maintained in the Telekom data centre.
+
+2. Broadband product
+Download broadband product data.csv
+Plain Text1Rows: 412Simulated source: Public HTTPS CSV endpoint3ADF connectivity: AutoResolveIntegrationRuntimeShow more lines
+Important columns:
+Plain Text1product_id2product_name3product_family4speed_raw5download_limit_gb6contract_months7product_status8launch_date9end_date10modified_timestampShow more lines
+Intentional issues:
+Plain Text1500 Mbps21 Gbps3500mbps4Unlimited5NAShow more lines
+You will need to standardize these into Mbps in Silver.
+
+3. Product pricing
+Download product pricing data.csv
+Plain Text1Rows: 1302Simulated source: Public HTTPS CSV endpointShow more lines
+Important columns:
+Plain Text1price_id2product_id3region4monthly_price5installation_fee6discount_pct7tax_pct8currency9effective_from10effective_to11price_statusShow more lines
+Intentional issues:
+
+Values such as INR 999
+Free installation fee
+18% tax
+Negative discount
+Missing currency
+Unknown Product ID
+Overlapping effective dates
+
+
+4. Broadband subscription
+Download broadband subscription data.csv
+Plain Text1Rows: 1,6032Simulated source: Public HTTPS CSV endpointShow more lines
+This table connects customers with broadband products.
+Important columns:
+Plain Text1subscription_id2customer_id3product_id4region5order_date6activation_date7disconnect_date8subscription_status9router_serial10sales_channel11modified_timestamp12batch_idShow more lines
+Intentional issues:
+
+Duplicate Subscription IDs
+Missing router serials
+Unknown Customer IDs
+Activation date earlier than order date
+Mixed subscription-status casing
+
+
+5. Billing and payment
+Download billing and payment data.csv
+Plain Text1Rows: 3,2002Simulated source: Public HTTPS CSV endpointShow more lines
+Important columns:
+Plain Text1invoice_id2subscription_id3customer_id4billing_period5invoice_date6due_date7base_amount8tax_amount9total_amount10payment_status11payment_date12payment_method13regionShow more lines
+Intentional issues:
+
+Missing invoice totals
+Negative tax values
+Mixed payment statuses
+Missing payment methods
+Overdue invoices
+Floating-point totals that require rounding
+
+This is the main dataset for revenue reporting.
+
+6. Daily broadband usage
+Download daily broadband usage data.csv
+Plain Text1Rows: 8,0002Simulated source: Public HTTPS CSV endpointShow more lines
+Important columns:
+Plain Text1usage_id2subscription_id3customer_id4usage_date5download_gb6upload_gb7total_gb8peak_usage_hour9session_count10region11source_event_time12batch_idShow more lines
+Intentional issues:
+
+Negative download usage
+Missing total usage
+Values requiring recalculation
+Multiple daily records per subscription
+
+
+7. Network performance
+Download network performance data.csv
+Plain Text1Rows: 5,0002Simulated source: Network CSV deliveryShow more lines
+Important columns:
+Plain Text1metric_id2measurement_time3region4city5network_node_id6technology7download_speed_mbps8upload_speed_mbps9latency_ms10packet_loss_pct11availability_pct12active_connectionsShow more lines
+Intentional issues:
+
+Extreme latency values
+Technology casing such as FTTH and ftth
+Low availability
+High packet loss
+Uneven performance across cities and regions
+
+
+8. Service fault tickets
+Download service fault ticket data.csv
+Plain Text1Rows: 2,3002Simulated source: Public HTTPS CSV endpointShow more lines
+Important columns:
+Plain Text1ticket_id2subscription_id3customer_id4opened_date5closed_date6fault_category7priority8ticket_status9resolution_code10engineer_visit_required11region12city13customer_satisfaction_scoreShow more lines
+Intentional issues:
+
+Missing fault categories
+Mixed priorities such as P1 and High
+Status values such as OPEN, open, and Resolved
+Missing satisfaction score
+Inconsistent Yes/No values
+Open tickets with no closed date
+
+
+Recommended real-project implementation
+Phase 1: SQL Server ingestion
+Load 01_customer_basic_info.csv into a sample SQL Server table:
+Plain Text1dbo.CustomerBasicInfoShow more lines
+Then create:
+Plain Text1ADF Linked Service:2LS_SQLServer_Telekom3 4Integration Runtime:5IR_SH_Telekom6 7Source Dataset:8DS_SQLServer_GenericTable9 10Sink Linked Service:11LS_ADLS_Bronze12 13Sink Dataset:14DS_ADLS_Bronze_ParquetShow more lines
+Pipeline:
+Plain Text1Lookup_Old_Watermark2        ↓3Lookup_New_Watermark4        ↓5Copy_Customer_SQLServer_To_Bronze6        ↓7Validate_Copy_Count8        ↓9SP_Update_AuditShow more lines
+
+Phase 2: HTTPS CSV ingestion
+Files 02 through 08 simulate public HTTPS deliveries.
+Create:
+Plain Text1Linked Service:2LS_HTTP_Telekom_Public3 4Integration Runtime:5AutoResolveIntegrationRuntime6 7Source Dataset:8DS_HTTP_CSV_Generic9 10Sink Linked Service:11LS_ADLS_Bronze12 13Sink Dataset:14DS_ADLS_Bronze_CSVShow more lines
+Use separate target folders:
+Plain Text1bronze/https/product/2bronze/https/pricing/3bronze/https/subscription/4bronze/https/billing/5bronze/https/usage/6bronze/https/network/7bronze/https/fault/Show more lines
+
+Silver transformations
+In Databricks Silver, perform:
+
+Schema enforcement
+Column-name standardization
+Datatype conversion
+Status normalization
+Key validation
+Duplicate handling using latest modified_timestamp
+Foreign-key validation
+Invalid-row quarantine
+Speed conversion into Mbps
+Price and percentage parsing
+Date validation
+Total amount and usage recalculation
+
+Example speed conversion:
+Plain Text1500 Mbps → 50021 Gbps   → 100032 Gbps   → 20004500mbps  → 5005Unlimited / NA → Quarantine or null based on ruleShow more lines
+Example reconciliation:
+Plain Text1Bronze input count2=3Silver valid count4+5Quarantine countShow more lines
+
+Gold data products
+1. Product performance by region
+Plain Text1Region2Product3Active subscriptions4New activations5Cancellation count6Monthly revenue7Average usage8Fault countShow more lines
+2. Monthly revenue by region
+Plain Text1Region2Month3Billed revenue4Collected revenue5Outstanding amount6Overdue amount7Collection rateShow more lines
+3. Subscription growth and churn
+Plain Text1Region2Opening subscriptions3New activations4Disconnections5Closing subscriptions6Churn rateShow more lines
+4. Network quality KPI
+Plain Text1Region2City3Average download speed4Average latency5Packet loss6Availability7Active connectionsShow more lines
+5. Fault-service KPI
+Plain Text1Region2Fault category3Ticket count4P1/P2 count5Average resolution time6Open-ticket count7Customer satisfactionShow more lines
+6. Customer 360
+Plain Text1Customer details2Current product3Current subscription4Monthly billing5Payment behavior6Average usage7Fault count8Latest satisfaction scoreShow more lines
+
+Business dashboard questions supported
+Business users can ask:
+
+Which region generates the most revenue?
+Which city has the strongest subscription growth?
+Which broadband speed category has the highest adoption?
+Which products provide the best revenue per subscriber?
+Which regions have high overdue payments?
+Where is network latency affecting fault volume?
+Which cities have poor availability?
+Which products have high usage but low fault rates?
+What is the churn rate by product and region?
+What is the fault rate per 1,000 active subscriptions?
+Which product provides the best price per Mbps?
+
+Suggested core KPIs
+Plain Text1Active Subscriptions2New Activations3Cancellation Rate4Churn Rate5Monthly Revenue6Collected Revenue7Outstanding Revenue8Average Revenue per User9Average Usage per Subscriber10Average Download Speed11Average Latency12Network Availability13Fault Rate per 1,000 Subscribers14Mean Resolution Time15Customer Satisfaction ScoreShow more lines
+The included README explains table purpose, quality problems, Silver transformations, Gold outputs, and recommended joins:
+Download dataset guide.txt
+This dataset gives us enough realistic material to build the complete project from ADF ingestion → ADLS Bronze → Databricks Silver and Gold → Synapse warehouse → business dashboards.
+
+
+
