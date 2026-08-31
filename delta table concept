@@ -1,0 +1,109 @@
+-----------
+delta table
+-----------
+syntax to set properties for delta table [deletedFileRetentionDuration->parquet,logRetentionDuration->delta_log]
+
+ALTER TABLE production.sales.customer
+SET TBLPROPERTIES (
+  'delta.deletedFileRetentionDuration' = 'interval 14 days',
+  'delta.logRetentionDuration' = 'interval 30 days'
+);
+
+delta-table-externaltable
+
+When you save a DataFrame in Delta format as an externaltable then The table directory contains two main components:
+customer/
+├── part-00000-....snappy.parquet
+├── part-00001-....snappy.parquet
+└── _delta_log/
+    ├── 00000000000000000000.json
+    └── ...
+	
+1.Parquet files
+These contain the actual table data.
+The number of Parquet files depends mainly on:
+DataFrame partitions
+Data volume
+Write operation
+File-size optimization settings
+
+2._delta_log
+This directory contains the Delta transaction history and metadata. It identifies:
+Active Parquet files
+Files added by a transaction
+Files logically removed by a transaction
+Schema changes
+UPDATE, DELETE, MERGE and WRITE operations
+Different table versions
+
+What happens during UPDATE or MERGE?
+Parquet files are immutable, meaning Delta generally does not edit an existing Parquet file directly.
+suppose:
+file-A.parquet → active
+file-B.parquet → active
+file-C.parquet → active
+
+A customer record located in file-B.parquet is updated.
+file-B.parquet → marked as removed
+file-D.parquet → created as a replacement
+
+The storage directory may now contain:
+file-A.parquet → active
+file-B.parquet → inactive, but physically present
+file-C.parquet → active
+file-D.parquet → new active file
+
+
+If 100 DataFrame partitions produce approximately 100 small Parquet files, OPTIMIZE can compact them into fewer, larger Parquet files, such as 10 files for illustration. The exact resulting number is decided based mainly on data size and file-size optimization, not simply a fixed 100-to-10 ratio.
+
+100 small active files
+        ↓
+    OPTIMIZE
+        ↓
+10 new larger active files
+100 original files become inactive
+        ↓
+Wait for deleted-file retention period
+        ↓
+     VACUUM
+        ↓
+Eligible inactive files are physically deleted
+
+
+
+
+for managed table
+-------------------
+Predictive Optimization is designed specifically for Unity Catalog managed tables. Databricks monitors table activity and automatically schedules OPTIMIZE, VACUUM, and ANALYZE when beneficial.
+
+
+ALTER CATALOG telecom_prod
+ENABLE PREDICTIVE OPTIMIZATION;
+
+Then configure the retention policy on important tables according to business requirements:
+
+ALTER TABLE telecom_prod.silver.customer
+SET TBLPROPERTIES (
+    'delta.deletedFileRetentionDuration' = 'interval 14 days',
+    'delta.logRetentionDuration' = 'interval 30 days'
+);
+
+theory 
+
+Delta Lake is a transactional storage layer built on ADLS that stores data in Parquet and tracks table state using the _delta_log. Its major benefit is that it brings database-like reliability to the data lake.
+
+In our project, we used ACID transactions to prevent partial writes, schema enforcement to protect Silver and Gold tables, and controlled schema evolution for approved source changes. We used MERGE for incremental loads and CDC, with source deduplication and timestamp checks to make ADF retries idempotent.
+
+Every successful modification created a new table version, so we used DESCRIBE HISTORY for auditing, time travel for comparing previous data, and RESTORE for recovery from accidental overwrites. For performance, we handled the small-file problem using optimized writes and OPTIMIZE, and selected partitioning or clustering based on query patterns and data volume.
+
+Old files replaced by updates, merges, overwrites, or optimization remained available for the configured recovery period. We used VACUUM to remove eligible unreferenced data files, while transaction-log cleanup happened separately according to log retention. We also used Change Data Feed for incremental downstream processing and Delta with Structured Streaming for near-real-time use cases. Overall, Delta helped us build reliable, auditable, restartable, and performant lakehouse pipelines.
+
+One-line conclusion
+
+The key benefit of Delta Lake is that it combines the low-cost scalability of a data lake with transactional reliability, incremental processing, recovery, auditability, and performance-management capabilities expected from a database.
+
+
+
+
+
+
