@@ -1,0 +1,259 @@
+Telekom SQL Server
+Hosted in Telekom data centre
+        ↓
+Self-hosted Integration Runtime
+        ↓
+ADF incremental Copy Activity
+Old watermark < modified_timestamp <= New watermark
+        ↓
+ADLS Gen2 Landing
+Parquet files in business-date and Batch-ID folder
+        ↓
+Databricks Landing-to-Bronze notebook
+        ↓
+Bronze Delta table
+        ↓
+Databricks Bronze-to-Silver notebook
+        ├── Accepted records → Silver Delta MERGE
+        └── Rejected records → Quarantine Delta
+        ↓
+Databricks Silver-to-Gold notebook
+        ↓
+Gold Delta table
+        ↓
+Databricks exports current Gold batch as Parquet
+        ↓
+ADF Copy Activity
+        ↓
+Synapse staging table
+        ↓
+Validation and reconciliation
+        ↓
+Synapse stored procedure
+        ↓
+dbo.DimBroadbandProduct
+        ↓
+Update watermark and audit
+
+
+
+┌───────────────────────────────────────┐
+│ Schedule Trigger                      │
+│ TRG_BroadbandProduct_Daily_2AM        │
+│                                       │
+│ Business Date = scheduledTime         │
+└───────────────────┬───────────────────┘
+                    │
+                    ▼
+┌───────────────────────────────────────┐
+│ Set Variable: v_batch_id              │
+│                                       │
+│ BROADBAND_PRODUCT                     │
+│ + Business Date                       │
+│ + ADF Run ID                          │
+└───────────────────┬───────────────────┘
+                    │
+                    ▼
+┌───────────────────────────────────────┐
+│ Stored Procedure: Start Audit         │
+│                                       │
+│ Status = RUNNING                      │
+│ Stage  = PIPELINE_STARTED             │
+└───────────────────┬───────────────────┘
+                    │
+                    ▼
+┌───────────────────────────────────────┐
+│ Lookup 1: Get Old Watermark           │
+│                                       │
+│ Source: Watermark control table       │
+│ Output: last_successful_watermark     │
+└───────────────────┬───────────────────┘
+                    │
+                    ▼
+┌───────────────────────────────────────┐
+│ Lookup 2: Get New Watermark           │
+│                                       │
+│ Source: Telekom SQL Server            │
+│ SELECT MAX(modified_timestamp)        │
+│ FROM dbo.BroadbandProduct             │
+└───────────────────┬───────────────────┘
+                    │
+                    ▼
+             ┌───────────────┐
+             │ If Condition  │
+             │               │
+             │ New WM >      │
+             │ Old WM?       │
+             └───────┬───────┘
+                     │
+          ┌──────────┴──────────┐
+          │ True                │ False
+          ▼                     ▼
+┌──────────────────────┐   ┌──────────────────────┐
+│ Copy Activity        │   │ Stored Procedure     │
+│ SQL Server to ADLS   │   │ Mark as NO_DATA      │
+│                      │   │                      │
+│ Incremental query    │   │ End successfully     │
+└──────────┬───────────┘   └──────────────────────┘
+           │
+           ▼
+┌───────────────────────────────────────┐
+│ If Condition: Copy Reconciliation     │
+│                                       │
+│ rowsRead == rowsCopied                │
+└───────────────────┬───────────────────┘
+                    │
+          ┌─────────┴──────────┐
+          │ Passed             │ Failed
+          ▼                    ▼
+┌──────────────────────┐  ┌───────────────────────┐
+│ Get Metadata         │  │ Update Failed Audit   │
+│ Validate Landing     │  │ Send Alert            │
+│                      │  │ Fail Pipeline          │
+│ Files exist?         │  └───────────────────────┘
+│ Folder not empty?    │
+└──────────┬───────────┘
+           │
+           ▼
+┌───────────────────────────────────────┐
+│ Databricks Notebook 1                 │
+│ Landing to Bronze                     │
+│                                       │
+│ Read exact Landing Batch folder       │
+│ Add Batch ID and Run ID               │
+│ Reconcile Landing vs Bronze           │
+└───────────────────┬───────────────────┘
+                    │
+                    ▼
+┌───────────────────────────────────────┐
+│ Databricks Notebook 2                 │
+│ Bronze to Silver                      │
+│                                       │
+│ Filter Bronze by Batch ID             │
+│ Transform and standardize             │
+│ Validate and quarantine               │
+│ Deduplicate Product ID                │
+│ MERGE into Silver                     │
+└───────────────────┬───────────────────┘
+                    │
+                    ▼
+┌───────────────────────────────────────┐
+│ Databricks Notebook 3                 │
+│ Silver to Gold                        │
+│                                       │
+│ Create DimBroadbandProduct dataset    │
+│ MERGE into Gold Delta                 │
+└───────────────────┬───────────────────┘
+                    │
+                    ▼
+┌───────────────────────────────────────┐
+│ Databricks Notebook 4                 │
+│ Export Gold Batch                     │
+│                                       │
+│ Filter current Batch ID               │
+│ Write Parquet to ADLS export folder   │
+└───────────────────┬───────────────────┘
+                    │
+                    ▼
+┌───────────────────────────────────────┐
+│ Script Activity                       │
+│ Truncate Synapse Staging Table        │
+│                                       │
+│ TRUNCATE TABLE                        │
+│ stg.DimBroadbandProduct               │
+└───────────────────┬───────────────────┘
+                    │
+                    ▼
+┌───────────────────────────────────────┐
+│ Copy Activity                         │
+│ Gold Parquet to Synapse Staging       │
+│                                       │
+│ ADLS Parquet                          │
+│ → stg.DimBroadbandProduct             │
+└───────────────────┬───────────────────┘
+                    │
+                    ▼
+┌───────────────────────────────────────┐
+│ Synapse Validation Activities         │
+│                                       │
+│ 1. Row-count reconciliation           │
+│ 2. Null Product ID check              │
+│ 3. Duplicate Product ID check         │
+│ 4. Business-rule checks               │
+└───────────────────┬───────────────────┘
+                    │
+                    ▼
+             ┌───────────────┐
+             │ If Condition  │
+             │               │
+             │ All Synapse   │
+             │ checks pass?  │
+             └───────┬───────┘
+                     │
+          ┌──────────┴──────────┐
+          │ Passed              │ Failed
+          ▼                     ▼
+┌──────────────────────┐  ┌───────────────────────┐
+│ Stored Procedure     │  │ Update Failed Audit   │
+│ Load Final Dimension│  │ Keep Gold Export      │
+│                      │  │ Send Alert            │
+│ Update existing      │  │ Fail Pipeline         │
+│ Insert new products  │  └───────────────────────┘
+└──────────┬───────────┘
+           │
+           ▼
+┌───────────────────────────────────────┐
+│ Stored Procedure                     │
+│ Update Watermark                     │
+│                                       │
+│ Old Watermark = New Watermark         │
+│ Only after complete success           │
+└───────────────────┬───────────────────┘
+                    │
+                    ▼
+┌───────────────────────────────────────┐
+│ Stored Procedure                     │
+│ Complete Audit                       │
+│                                       │
+│ Status = SUCCEEDED                   │
+│ Reconciliation = PASSED              │
+│ End Timestamp = Current time         │
+└───────────────────────────────────────┘
+
+
+I developed an end-to-end incremental ETL pipeline for Broadband Product data in the Telekom project. The source was a SQL Server database hosted in the Telekom data centre, outside the Azure network. Therefore, Azure Data Factory connected to SQL Server through a Self-hosted Integration Runtime.
+
+The pipeline was scheduled to run daily using an ADF Schedule Trigger. At the beginning of each run, ADF generated a unique Pipeline Run ID and a Batch ID. The Batch ID was created using the entity name, business date, and part of the ADF Run ID. This Batch ID was used to track the same set of records across Landing, Bronze, Silver, Gold, and Synapse.
+
+For incremental extraction, I used two Lookup activities. The first Lookup retrieved the previous successful watermark from a control table. The second Lookup retrieved the current maximum modified_timestamp from the source Broadband Product table.
+
+The Copy Activity extracted only records where the source modified_timestamp was greater than the previous watermark and less than or equal to the new watermark. This is the standard watermark-range pattern for incremental database ingestion.
+
+ADF wrote the extracted records as Snappy-compressed Parquet files into an ADLS Gen2 Landing folder organized by business date and Batch ID. This created a unique folder for each pipeline run and prevented one batch from overwriting another.
+
+After validating that the source count matched the Landing count, ADF invoked the Landing-to-Bronze Databricks notebook. ADF passed the exact Landing path, Batch ID, Pipeline Run ID, business date, watermark range, and target table names through the Notebook Activity Base parameters. ADF supports passing pipeline parameters to Databricks notebooks during execution.
+
+Databricks received the parameters through widgets and read only the current Batch ID’s Landing folder. It added technical audit columns such as Batch ID, Pipeline Run ID, business date, Landing path, old watermark, new watermark, and ingestion timestamp. The records were then appended into the Bronze Delta table.
+
+In the Bronze-to-Silver notebook, I filtered Bronze using the same Batch ID so that only the current pipeline batch was processed. I standardized Product IDs, Product Family, Product Status, and Product Name. I converted broadband speeds such as 500 Mbps and 1 Gbps into a common product_speed_mbps column. I also converted download limits, contract months, launch dates, end dates, and modified timestamps into their correct business datatypes.
+
+After transformation, I created Boolean data-quality flags for critical rules, such as valid Product ID, positive speed, supported contract duration, approved Product Status, valid dates, and valid modified timestamp. Blocking failures were added to a rejection-reasons array, while optional data issues were classified as warnings.
+
+Based on these results, records were classified as ACCEPTED, ACCEPTED_WITH_WARNING, or REJECTED. Rejected records were written into a Silver quarantine table with their original values, validation flags, rejection reasons, Batch ID, and rejection timestamp.
+
+I deduplicated accepted records using product_id as the business key and retained the record with the latest modified timestamp. Before publishing, I performed reconciliation using the rule that the Bronze batch count must equal accepted records plus rejected records plus duplicate records.
+
+The accepted and deduplicated records were merged into the Silver Delta table. New Product IDs were inserted, existing Product IDs were updated only when the incoming modified timestamp was newer, and older or equal records were ignored. This made the Silver load incremental and idempotent.
+
+The Silver-to-Gold notebook prepared a warehouse-ready Broadband Product dimension. It exported only the current Gold Batch ID as Parquet into a temporary ADLS Synapse-export folder.
+
+ADF then truncated the Synapse staging table and loaded the current Gold Parquet batch into staging using the Azure Synapse connector. For better bulk-load performance, the Synapse connector supports COPY and PolyBase, which are preferred over row-by-row insertion.
+
+Before loading the final table, I performed staging validations such as Gold-to-staging count reconciliation, null Product ID checks, duplicate Product ID checks, supported Product Status validation, positive-speed validation, and contract-month validation.
+
+After all validations passed, ADF called a Synapse stored procedure. The stored procedure updated existing products when the incoming modified timestamp was newer and inserted Product IDs that did not exist in the final DimBroadbandProduct table.
+
+Finally, the pipeline updated the audit record as successful and advanced the previous watermark to the new watermark. The watermark was updated only after Landing, Bronze, Silver, Gold, Synapse staging, validation, and final dimension loading completed successfully.
+
+If the pipeline failed before completion, the watermark remained unchanged. If only the Synapse stage failed, the pipeline reused the existing Gold Parquet export and restarted from the Synapse stage rather than extracting and transforming the SQL Server data again.
+
