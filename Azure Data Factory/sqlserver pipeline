@@ -256,4 +256,32 @@ After all validations passed, ADF called a Synapse stored procedure. The stored 
 Finally, the pipeline updated the audit record as successful and advanced the previous watermark to the new watermark. The watermark was updated only after Landing, Bronze, Silver, Gold, Synapse staging, validation, and final dimension loading completed successfully.
 
 If the pipeline failed before completion, the watermark remained unchanged. If only the Synapse stage failed, the pipeline reused the existing Gold Parquet export and restarted from the Synapse stage rather than extracting and transforming the SQL Server data again.
+----------------------------------------------------------------------------------------------------------------------
 
+
+ADF scheduled trigger starts
+        ↓
+ADF creates Batch ID
+PRODUCT_20260902_DGDFD746
+        ↓
+ADF extracts incremental SQL Server rows
+using old and new watermarks
+        ↓
+ADF writes Parquet into the Batch ID folder
+        ↓
+Landing-to-Bronze notebook receives Batch ID
+and exact Landing folder through Base parameters
+        ↓
+Notebook reads only that Landing folder
+        ↓
+Bronze records are tagged with Batch ID
+        ↓
+Bronze-to-Silver notebook receives the same Batch ID
+        ↓
+Silver reads only Bronze rows for that Batch ID
+        ↓
+Gold processes the current batch
+        ↓
+Current Gold batch is exported to Synapse staging
+        ↓
+Stored procedure loads the final Synapse dimension
