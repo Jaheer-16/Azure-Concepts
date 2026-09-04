@@ -1,0 +1,126 @@
+PIPELINE-CSV-INCREMENTAL LOAD
+
+Pipeline steps
+
+Step 1: Get Metadata activity
+
+Points to the landing zone folder.
+Setting: Field list = Child Items (this lists every file in the folder, with names).
+Output: a list of ALL files currently sitting in landing zone (old + new).
+
+Step 2: Lookup activity
+
+Runs a query on file_watermark table: SELECT file_name FROM file_watermark WHERE load_status = 'Loaded'
+Output: list of file names already processed.
+
+Step 3: Filter activity
+
+Compares the two lists.
+Condition: keep only files from Step 1 whose name is NOT in the list from Step 2.
+Output: only the new/unprocessed files.
+
+Step 4: ForEach activity
+
+Loops over the filtered (new) file list.
+Inside the loop:
+Copy Activity → copies that one file from landing zone → processing/staging zone (or directly to Synapse/SQL).
+Stored Procedure activity → inserts a row into file_watermark table: (file_name, 'Loaded', current_timestamp)
+
+Step 5 (optional but recommended): Alert/Log
+
+If any file fails in the ForEach, log it separately (don't mark as "Loaded") so it gets picked up automatically next run since it's still "new" from the checklist's point of view.
+
+PIPELINE-CSV-INCREMENTAL-FULL LOAD
+
+Get Metadata (list ALL files, all date folders — wildcard path)
+        |
+        v
+ForEach (loop every file, batchCount = MORE THAN DEFAULT)
+        |
+        ├── Copy Activity → file goes to staging area
+        |
+        └── Stored Procedure → insert file_name into control table
+                                 (load_status='Loaded', load_type='FULL')
+								 
+
+incremental load-database
+
+I designed an incremental pipeline using a bounded watermark window instead of a simple open-ended filter. I capture two boundaries — the last watermark from a control table, and the current max timestamp from the source — and pull only the rows between them. This avoids missing or duplicating rows that get inserted while the pipeline is still running. After a successful load, I update the control table with the upper boundary I used, so the next run picks up exactly where this one left off."
+
+        ┌────────────────────────┐
+        │ LKP_GetLastWatermark   │──┐
+        └────────────────────────┘  │
+                                     ├──►  CPY_IncrementalLoad ──►  SP_UpdateWatermark
+        ┌────────────────────────┐  │      (WHERE date BETWEEN
+        │ LKP_GetSourceMax       │──┘       lower AND upper bound)
+        └────────────────────────┘
+		
+
+
+FULL LOAD-DATABASE
+
+"Copy Activity supports source partitioning for database connectors. Under the Source tab, I can enable partitioning and choose between physical partitions — if the table is already partitioned in the database — or dynamic range partitioning, where I specify a column, its bounds, and the number of partitions. ADF then splits a single serial query into multiple parallel queries, which is critical when doing a full load on a huge table, since it avoids timeouts and cuts load time significantly."
+
+"Partitioning is what turns a full-load Copy Activity from one long serial scan into several concurrent chunked reads — it's the single biggest lever for performance on large database tables, but it needs a well-indexed, evenly distributed column to actually pay off."
+
+-----------------------------------------------------------------------------------------------------------------
+
+1. CSV — Full Load (one-time)
+
+Activities: Get Metadata → ForEach → Copy + Stored Procedure
+
+Get Metadata (wildcard path across all date folders, list ALL files)
+        |
+        v
+ForEach (batchCount tuned higher, e.g. 20-30, tested for stability)
+        |
+        ├── Copy Activity (file → staging/target)
+        └── Stored Procedure (insert file_name into control table, load_type='FULL')
+
+Talking point: "No Lookup or Filter needed here — control table is empty on Day 1, so everything qualifies. I use a wildcard folder path to pick up files across all historical date-partitioned folders in one pass, and tune ForEach's batchCount higher since it's a one-time bulk job."
+
+2. CSV — Incremental Load (ongoing)
+
+Activities: Get Metadata → Lookup → Filter → ForEach → Copy + Stored Procedure
+
+Get Metadata (today's date-partitioned folder only)
+        |
+        v
+Lookup (already-processed file names from control table)
+        |
+        v
+Filter (keep only files NOT in Lookup's list)
+        |
+        v
+ForEach (batchCount tuned lower, e.g. 5-10, since daily volume is small)
+        |
+        ├── Copy Activity (new file → staging/target)
+        └── Stored Procedure (insert file_name, load_type='INCR')
+
+Talking point: "Get Metadata only scans today's folder — not the entire history — for performance. Filter compares against the control table to isolate new files. Each file gets logged individually, so tracking is file-name based, not date based, which avoids missing files if several land within one trigger window."
+
+3. Database — Full Load (one-time)
+
+Activities: Copy (with partitioning) → Lookup → Stored Procedure
+
+Copy Activity (SELECT * FROM source_table, partitioned read for large tables)
+        |
+        v (on success)
+Lookup (SELECT MAX(last_modified_date) FROM source_table)
+        |
+        v
+Stored Procedure (INSERT INTO control_table: seed initial watermark)
+
+Talking point: "No WHERE clause — target is empty, so I pull everything. For large tables, I enable Copy Activity's partition option — physical partitions if the table is already partitioned, or dynamic range partitioning on an indexed column — to split one big serial read into parallel chunks. After load, I capture MAX(last_modified_date) and seed the control table, so incremental has a clean starting point."
+
+4. Database — Incremental Load (ongoing)
+
+Activities: Lookup (watermark) + Lookup (max) → Copy → Stored Procedure
+
+Lookup1 (last_watermark from control table)  ──┐
+                                                 ├──► Copy Activity (WHERE date > Lookup1 AND date <= Lookup2)
+Lookup2 (MAX(last_modified_date) from source) ──┘              |
+                                                                 v
+                                                     Stored Procedure (update control_table = Lookup2 value)
+
+Talking point: "I use a bounded window — not just > watermark, but BETWEEN last_watermark AND current_max — to avoid a race condition where rows inserted mid-run get inconsistently captured. Both lookups run in parallel since they're independent. Watermark only advances after Copy succeeds, keeping the pipeline idempotent and safely re-runnable."
