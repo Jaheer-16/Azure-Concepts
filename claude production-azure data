@@ -1,0 +1,47 @@
+
+3. Performance Tuning (your 30% cost reduction claim)
+
+⚠️ This is the bullet most likely to get deep follow-up questions. Have a specific before/after story ready — interviewers can tell the difference between a memorized list and a real experience.
+
+Q: What specific techniques did you use to achieve the 30% cluster cost reduction?
+
+Structure your answer as: Problem → Diagnosis → Actions → Result
+
+"We noticed our nightly batch jobs were running longer than expected and consuming more DBUs than budgeted. I used the Spark UI / Query Profile to diagnose:
+
+Data skew in a few large joins — one partition key (e.g., a specific product category or region) had disproportionately more rows, causing a few tasks to run 5-10x longer than others while the rest of the cluster sat idle. I applied salting on the skewed join key to spread that data across more partitions.
+Excessive small files in Silver tables from frequent micro-batch writes — ran OPTIMIZE with ZORDER on frequently filtered columns, and set up a scheduled compaction job, which reduced file count and improved read performance for downstream Gold aggregations.
+Over-provisioned clusters — several jobs were using fixed-size clusters sized for peak load year-round. Switched to autoscaling clusters and tuned min/max worker counts based on actual historical job profiles.
+Enabled Photon engine where applicable for CPU-bound aggregation-heavy jobs.
+Reviewed and removed unnecessary .cache()/.persist() calls that were holding memory without reuse benefit.
+
+
+------------------------------------------------------------------------------------------------------------------------
+: Tell me about a time a pipeline failed in production.
+
+What happened: We get a file every day from the order system. Each row has a customer ID, a KLS_ID (which tells us the address or pincode), and product info (like ADSL, VDSL, or a plan such as VDSL-100MBPS). One morning, the report that shows "which orders are ready for installation" didn't update. Field engineers use this report to plan their daily visits, so this was a problem — they had no idea which new orders needed a visit that day.
+
+How I found the cause: I went into Databricks and checked which step failed. I found that the step which processes and cleans the data had crashed. When I looked closer, I saw that a few orders had come in with the product info missing — this happens when a customer places an order but hasn't finalized their exact plan yet. Our code was written assuming product info would always have a value, so when it saw a blank value, it broke the entire batch, not just those few orders.
+
+What I did to fix it: I first fixed the immediate problem — I changed the code so that if product info is missing, that order goes into a separate "pending" table instead of stopping everything. Then I manually reran the missed day's data so field engineers got their list back with almost no delay.
+
+What I did after, to prevent it again: I didn't want the same mistake to repeat, so I added an automatic check that looks for missing or incomplete product info before the main processing even starts. If it finds a problem, it sends an alert to the team right away, instead of letting the whole pipeline crash. Since then, this exact issue hasn't happened again, and the check has also caught a couple of similar problems early.
+-----------------------------------------------------------------------------------------------------------------------------
+
+How do you handle communication with the client?
+
+What happened: The client once asked us to make the provisioning dashboard update "as close to real-time as possible," because they wanted to react quickly to problems.
+
+How I responded: Instead of just agreeing right away, I explained to them what "real-time" actually means from a technical side — it means keeping servers running all the time, which costs more money and needs more monitoring from our team. I asked them what they were really trying to solve, instead of just building what was literally asked.
+
+What we found out and did instead: After discussing, it turned out they didn't need updates every second — what they really wanted was to know quickly if an order was stuck somewhere for too long without progress. So instead of building expensive real-time streaming, we set the dashboard to refresh every 15 minutes, and separately added an alert that specifically flags orders that have been stuck for too long. This solved their actual problem in a simpler and cheaper way, and they were happy with this solution.
+--------------------------------------------------------------------------------------------------------------------------------
+Describe a challenging bug you debugged.
+
+What happened: The team noticed something strange in our report — the same customer, at the same address, was showing up twice, with two different statuses. One row said "in progress" and another said "completed." It looked like a data mistake, and the business team was confused about whether the customer actually had one order or two.
+
+How I investigated: I first checked if it was a simple duplicate — like the same file being loaded twice by mistake. That wasn't the case. So I looked closer at the actual data for that customer and realized what happened: the customer had asked to upgrade their plan — for example, from VDSL-50MBPS to VDSL-100MBPS — before their original installation was even completed. This created a new order record, with the same customer ID and same address, but a different product info value.
+
+What the real issue was: Our code was designed to remove duplicate records by looking only at customer ID and address, and keeping just the latest one. Since it didn't check the product info, it treated the plan upgrade as if it were a duplicate of the original order, and deleted the important change instead of keeping both.
+
+How I fixed it: I updated the logic so it also considers the product/plan info when deciding what counts as a duplicate. This way, if the plan changes, it's treated as a real update, not a duplicate to be thrown away. As a side benefit, this also gave the business a clear history of plan upgrades, which they didn't have before and later asked us to build further.
