@@ -1,0 +1,216 @@
+Interview Answer: Explain Your Project
+
+I worked on a Telekom broadband data-engineering project. The main objective was to build reliable and incremental data pipelines for broadband-related domains such as Customer, Broadband Product, Product Pricing, Subscription, Billing, Daily Usage, Network Performance, and Service Fault data.
+
+The project followed a medallion architecture with Landing, Bronze, Silver, and Gold layers. Azure Data Factory was used for ingestion, scheduling, orchestration, parameterization, auditing, and failure handling. Azure Databricks was used for distributed transformations and data-quality processing. ADLS Gen2 was used as the data lake, and Azure Synapse Dedicated SQL Pool was used as the final data warehouse for reporting.
+
+One of the pipelines I developed was the Broadband Product pipeline. The source was a SQL Server database hosted inside the Telekom data centre. Since the database was outside the Azure network, ADF connected to it through a Self-hosted Integration Runtime. The SQL Server linked service used a dedicated read-only service account. The password was securely stored in Azure Key Vault and referenced from the linked service.
+
+The pipeline ran daily using an ADF Schedule Trigger. At the start of every run, ADF generated a unique Pipeline Run ID and Batch ID. The Batch ID was created using the entity name, scheduled business date, and part of the ADF Run ID. We used the same Batch ID across Landing, Bronze, Silver, Gold, Synapse, and audit tables for complete traceability.
+
+For incremental loading, I used two Lookup activities. The first Lookup retrieved the previous successful watermark from a control table. The second Lookup retrieved the current maximum modified_timestamp from the Broadband Product source table.
+
+The Copy Activity extracted records using the condition:
+
+Plain Text
+1
+previous watermark < modified_timestamp <= current watermark
+Show more lines
+
+The extracted records were written as Snappy-compressed Parquet files into an ADLS Gen2 Landing folder organized by business date and Batch ID. This ensured that each batch had its own immutable folder and could be independently traced or reprocessed.
+
+After extraction, I validated that the number of rows read from SQL Server matched the number of rows copied into Landing. ADF then passed the exact Landing batch path, Batch ID, Pipeline Run ID, business date, watermark range, and table names to a Databricks notebook using Notebook Activity Base parameters.
+
+The Landing-to-Bronze notebook received these parameters through Databricks widgets and read only the current Batch ID folder. It added technical audit columns such as Batch ID, Pipeline Run ID, business date, watermark values, Landing path, and ingestion timestamp. The records were appended into a managed Bronze Delta table. Bronze preserved the source data and incremental history.
+
+The Bronze-to-Silver notebook filtered the Bronze table using the current Batch ID. It trimmed spaces, converted blanks to null, standardized Product IDs, Product Family, Product Status, and Product Name, and converted fields into appropriate business datatypes.
+
+For example, speed values such as 500 Mbps and 1 Gbps were standardized into a common product_speed_mbps column. 1 Gbps became 1000 Mbps. Download limits were converted into a numeric download_limit_gb column with a separate is_unlimited_download Boolean flag. Contract values such as 12 months were converted into integer months. Launch Date, End Date, and Modified Timestamp were safely converted into Date and Timestamp datatypes.
+
+After completing the transformations, I created Boolean validation flags for critical business rules. These included Product ID format validation, mandatory Product Name validation, approved Product Family and Product Status checks, positive Product Speed validation, valid Contract Months, valid dates, and valid Modified Timestamp.
+
+Blocking failures were added to a rejection-reasons array. Optional issues were added to a warning-reasons array. Based on these results, every record received one of three statuses:
+
+Plain Text
+1
+ACCEPTED
+2
+ACCEPTED_WITH_WARNING
+3
+REJECTED
+Show more lines
+
+Rejected records were written into a Silver quarantine Delta table with the original values, validation flags, rejection reasons, Batch ID, and rejection timestamp.
+
+I also handled duplicate Product IDs by partitioning records by product_id, ordering them by the latest Modified Timestamp, and retaining only the latest record. Older records from the same batch were classified as duplicates and sent to quarantine.
+
+Before writing to Silver, I reconciled the records using:
+
+Plain Text
+1
+Bronze batch count
+2
+=
+3
+Accepted count
+4
++
+5
+Rejected count
+6
++
+7
+Duplicate count
+Show more lines
+
+Accepted and deduplicated records were loaded into the Silver Delta table using Delta MERGE. New Product IDs were inserted. Existing Product IDs were updated only when the incoming Modified Timestamp was newer. Older or equal records were ignored, which made the Silver pipeline incremental and idempotent.
+
+In the Gold layer, I created a warehouse-ready Broadband Product dimension. For Synapse loading, Databricks prepared a DataFrame containing only the applicable records from the current Batch ID and wrote it as Parquet into a dynamic ADLS export path containing the business date and Batch ID.
+
+ADF used the same export-path parameter in the next Copy Activity, so it loaded only the current batch’s Parquet files into the Synapse staging table. Before loading the final dimension, we performed row-count reconciliation, null Product ID checks, duplicate Product ID checks, Product Status validation, positive-speed validation, and Contract Month validation.
+
+After all validations passed, ADF executed a Synapse stored procedure. The procedure updated existing Product records when the incoming Modified Timestamp was newer and inserted Product IDs that did not already exist in DimBroadbandProduct.
+
+Finally, the pipeline updated the audit record as successful and advanced the source watermark only after the entire pipeline, including the Synapse target load, completed successfully.
+
+We also designed stage-level recovery. If Landing-to-Bronze failed, we reused the existing Landing batch. If Silver failed, we reprocessed the existing Bronze Batch ID. If only Synapse failed, we reused the existing Gold Parquet export and restarted from Synapse staging instead of extracting the SQL Server records again.
+
+This design provided incremental processing, batch-level traceability, data-quality enforcement, duplicate prevention, reconciliation, idempotency, and restartability.
+
+Short One-Minute Version
+
+I worked on an end-to-end Telekom broadband data-engineering project using ADF, ADLS Gen2, Azure Databricks, Delta Lake, Azure Key Vault, and Azure Synapse.
+
+For the Broadband Product pipeline, the source was SQL Server inside the Telekom data centre. ADF connected through Self-hosted Integration Runtime and used a dedicated service account whose password was secured in Key Vault.
+
+The pipeline ran daily and used two Lookup activities for watermark-based incremental extraction. The first retrieved the previous successful watermark, and the second retrieved the current maximum Modified Timestamp. The Copy Activity extracted records between those values and wrote them as Parquet into an ADLS folder partitioned by business date and Batch ID.
+
+ADF passed the path and Batch ID to Databricks through Notebook Base parameters. Databricks loaded the current batch into Bronze, standardized and validated it in Silver, quarantined invalid records, deduplicated Product IDs, and used Delta MERGE for inserts and updates.
+
+Gold created a warehouse-ready Product dimension and exported the current batch as Parquet. ADF loaded it into Synapse staging, validated row counts, null keys, duplicates, and business rules, and then called a stored procedure to update and insert records into the final dimension.
+
+The watermark was updated only after complete success. Because every layer was persisted and tracked using the Batch ID, we could restart from the failed stage without repeating successful upstream processing.
+
+Key Technologies to Mention
+Plain Text
+1
+Azure Data Factory
+2
+Azure Data Lake Storage Gen2
+3
+Azure Databricks
+4
+PySpark
+5
+Delta Lake
+6
+Unity Catalog
+7
+Self-hosted Integration Runtime
+8
+Azure Key Vault
+9
+Azure Synapse Dedicated SQL Pool
+10
+SQL Server
+11
+Parquet
+12
+Power BI
+13
+Git
+14
+``
+Show more lines
+Important Project Concepts to Mention
+Plain Text
+1
+Watermark-based incremental loading
+2
+Parameterized ADF pipelines
+3
+Schedule triggers
+4
+Batch-level traceability
+5
+ADF Notebook Base parameters
+6
+Databricks widgets
+7
+Bronze append-only history
+8
+Silver transformation and validation
+9
+Quarantine handling
+10
+Business-key deduplication
+11
+Delta MERGE
+12
+Count reconciliation
+13
+Synapse staging pattern
+14
+Stored-procedure-based update and insert
+15
+Audit logging
+16
+Idempotency
+17
+Stage-level restartability
+Show more lines
+Common Follow-Up Questions
+“Why did you use two Lookup activities?”
+
+The first Lookup retrieved the last successful watermark from the control table. The second Lookup retrieved the current maximum Modified Timestamp from the source table. The Copy Activity used these two values to extract a stable incremental range.
+
+“Why did you use Batch ID?”
+
+The watermark identified which source records to extract, while the Batch ID tracked those extracted records through Landing, Bronze, Silver, Gold, Synapse, and audit tables. This gave us end-to-end traceability and controlled restart capability.
+
+“Why did you use Parquet in Landing?”
+
+Parquet is a columnar format that preserves datatypes, reduces storage through compression, and provides better read performance for Databricks and Synapse compared with CSV.
+
+“Why did you use Bronze if the source was already Parquet?”
+
+Landing preserved the extracted files, while Bronze converted the batch into a managed Delta table with audit metadata, ACID support, schema enforcement, history, and reliable downstream processing.
+
+“How did you handle invalid records?”
+
+We created Boolean validation flags after transformation. Blocking failures were written to a rejection-reasons array and routed to quarantine. Optional issues were classified as warnings, allowing the record to continue as accepted with warning.
+
+“How did you handle failures?”
+
+Every major ADF activity had a failure path that updated the audit table, captured the failed stage and error message, sent an alert, and failed the pipeline. Persisted layers allowed us to restart from Landing, Bronze, Silver, Gold, or Synapse without repeating successful stages.
+
+“When did you update the watermark?”
+
+We updated the watermark only after the final Synapse load and reconciliation succeeded. If any stage failed, the previous successful watermark remained unchanged.
+
+“What was your role?”
+
+My responsibilities included developing parameterized ADF pipelines, implementing watermark-based incremental ingestion, creating PySpark transformation and validation logic, building Bronze and Silver Delta tables, implementing Delta MERGE, handling quarantine records, performing reconciliation, integrating Gold outputs with Synapse staging, and supporting pipeline monitoring and failure recovery.
+
+Main improvements in this answer
+Structure: Presents the project from source to serving layer in a logical sequence.
+Clarity: Separates watermark, Pipeline Run ID, Batch ID, and business date.
+Technical depth: Includes transformation, validation, reconciliation, MERGE, and restart behavior.
+Interview impact: Explains not only which services were used, but why each service and design choice was needed.
+
+
+-----------------------------------------------------------------------------------------------------------
+
+introduction-
+
+Good morning, and thank you for the opportunity. My name is Jaheer Shaik, and I am currently working as a Programmer Analyst at Cognizant. My primary area of expertise is Azure Data Engineering, with hands-on experience in Azure Data Factory, Azure Databricks, PySpark, SQL, ADLS Gen2, Delta Lake, Unity Catalog, Azure Synapse, and Azure Key Vault.
+
+In my Telekom broadband project, I worked on end-to-end data pipelines for domains including Customer, Broadband Product, Pricing, Subscription, Billing, Usage, Network Performance, and Service Faults.
+
+I developed incremental ADF pipelines using watermark logic, schedule triggers, pipeline parameters, Batch IDs, and audit tables. For SQL Server sources inside the Telekom data centre, ADF used Self-hosted Integration Runtime. The extracted records were stored as Parquet files in ADLS Gen2 folders organized by business date and Batch ID.
+
+In Databricks, I developed PySpark notebooks for Bronze, Silver, and Gold processing. My responsibilities included standardization, datatype conversion, data-quality rules, quarantine handling, deduplication, reconciliation, and Delta MERGE. I also worked on loading the current Gold batch into Synapse staging, validating the staging data, and loading the final warehouse dimension through a stored procedure.
+
+I am particularly interested in building reliable and restartable pipelines. In our design, the watermark was updated only after the complete pipeline succeeded, and persisted layers allowed us to restart processing from the failed stage.
+
+I am now looking for an Azure Data Engineer opportunity where I can contribute these skills and continue developing my experience with scalable production data platforms.
