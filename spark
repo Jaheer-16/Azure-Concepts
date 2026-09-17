@@ -1,0 +1,35 @@
+when we write transformations intially the spark will create a logic plan when actual trigger action(show,display,collect,write)happens
+then catalyst will optimize and give you multiple physical plan and picks you a one plan which is low cost and spark creates a job for
+it then Dag scheduler will further divided into stages and tasks Since the dag is acyclic the direction is one side not like a loop and
+once every task is completed by the worker node result will get back to the driver 
+
+1. Write transformations → Logical Plan built (lazy)
+        ↓
+2. Action triggered (show/display/collect/write)
+        ↓
+3. Catalyst optimizes → generates multiple Physical Plans → picks lowest-cost one
+        ↓
+4. Spark creates a Job for this action
+        ↓
+5. DAG Scheduler divides the Job into Stages (at shuffle boundaries)
+        ↓
+6. Stages divided into Tasks (one per partition)
+        ↓
+7. Tasks sent to Executors (worker nodes) → run in parallel
+        ↓
+8. Since DAG is acyclic → flow is one-directional, no loops back
+        ↓
+9. Once all tasks in all stages complete → results sent back to the Driver
+
+
+
+when i explained this in spark level -> driver runs the main spark application and create spark session when the action is triggerd
+spark creates a job and further divided into stages and task. cluster manager will allocate memory and cpu resources and helps
+launch executors on nodes.Executors run the tasks assigned by the driver,Each executor can run multiple tasks concurrently, usually
+one task per available CPU core. Each task normally processes one partition of data and reports its status or result to the Driver.
+
+
+APACHE Spark
+Apache Spark is a distributed, in-memory data processing engine designed for speed and unified analytics — it handles batch processing,
+ streaming, SQL, machine learning, and graph processing all within one engine. Its key advantage over Hadoop MapReduce is that it keeps
+ data in memory across operations instead of writing to disk after every step, making it up to 100x faster for iterative workloads."
