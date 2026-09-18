@@ -1,0 +1,15 @@
+✅ Unity Catalog is a centralized data governance layer for all data in Databricks
+✅ It manages permissions across all workspaces, not per-workspace
+✅ Without UC, you'd have to secure data individually at each workspace (your dev/UAT/prod example is exactly right)
+✅ With UC, you control all of it from one central place
+✅ An admin decides who can access what
+
+WITH UNITY CATALOG IN DATABRICKS we can see history right who query this and for this table where the data comes from
+
+If asked a scenario question: "How would you set up UC for a new project?"
+
+"First, a metastore needs to be created and attached to the workspace — usually a one-time account-level setup done by an admin.
+ Then I'd create a Storage Credential to authorize access to cloud storage, and register an External Location if I'm pointing to a 
+ specific ADLS or S3 path. After that, I'd create the catalog and schema — these aren't auto-created — and then either write tables 
+ directly with saveAsTable, which registers them in UC automatically, or use a Declarative Pipeline, which can even auto-create the
+ schema if it doesn't exist."
