@@ -1,0 +1,36 @@
+
+from pyspark.sql import functions as F
+
+N=5
+orders_salted=orders.withColumn("salt",(F.rand()*N).cast("int"))\
+						.withColumn("salted_key",F.concat_ws("_","cust_id","salt"))
+						
+customers_salted=customers.withColumn("salt",F.explode(F.array([F.lit(i) for i in range(N)])))\
+							.withColumn("salted_key",F.concat_ws("_","cust_id","salt"))
+							
+orders_salted.join(customers_salted,"salted_key","inner")
+
+
+to check the skew first i will do:
+grpby=orders.groupBy("cust_id").agg(F.count("*").alias("Total_rows")).orderBy(F.col("Total_rows").desc())
+Here we can see the total rows per customer and their ordered count
+here if few customers have more rows and rest of them are few then we will get skew because when we do repartition/nothing while
+joining all same identical rows will go into one partition in this case one/few partitions need to deal with more rows while
+others remains idle
+
+OR
+
+from pyspark.sql import functions as F
+
+df = orders.withColumn("partition_id", F.spark_partition_id())
+
+grpby = (
+    df.groupBy("partition_id")
+    .agg(F.count("*").alias("total_rows"))
+    .orderBy(F.col("total_rows").desc())
+)
+
+grpby.show()
+
+
+so salting techniques is best for medium/large datasets and also even we do repartitions for big data sets if one id have more rows then also and in case if one dataset is large and other is small which capable to fit in-memory which is less than 10mb then we use broadcast
