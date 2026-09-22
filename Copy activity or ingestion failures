@@ -1,0 +1,47 @@
+Idea 1:
+"Instead of only retrying the Copy, I retry 'Delete + Copy' together as a pair, using a loop, so every attempt always starts from an empty folder, automatically, with no duplicates and no manual click."
+
+step1: set two variables at pipeline level
+attempt → starts at 0 (counts how many times we've tried)
+success → starts as false (yes/no: did it work?)
+
+Step 2: Add an "Until" activity — this is just a loop    [@or(equals(variables('success'), true), greaterOrEquals(variables('attempt'), 3))]
+An Until activity in ADF means: "keep repeating what's inside me, until a condition becomes true."
+
+Step 3: Inside that loop, put 3 things in order
+Inside the Until loop:
+   1. Delete the temp folder   (clean slate, every single time)
+   2. Copy the data            (try to load it)
+   3. Check: did Copy work?
+        - Yes → turn success to true
+        - No  → add 1 to attempt
+
+Step 4: The loop repeats automatically
+Because it's an Until loop, ADF automatically goes back to step 1 (Delete) and tries again, as long as success is still false and attempt is under 3. You don't click anything. ADF does this by itself.
+
+Step 5: After the loop ends
+If success became true at some point → move the files from the temp folder to the real landing folder, then continue to Databricks.
+If it tried 3 times and still failed → now, and only now, send you an alert
+
+
+here my doubts are:
+-we need 3 retrys so where we need to set
+ans:@or(equals(variables('success'), true), greaterOrEquals(variables('attempt'), 3))
+-for every run for example this time we get successful data at 2 second time so in attempt it will show as 2 , but for next day we need it to zero how this possible
+Yes, automatically, and here's why: pipeline variables reset every time the pipeline starts a new run.
+---------------------------------------------------------------------------------------------------------------
+
+Idea 2 — 
+
+Temp folder (Delete → Copy → Move, linear) + alert on failure + manual rerun. Best suited for SHIR, since most SHIR failures (machine off, VPN down, network drop) genuinely need a human to fix the underlying infrastructure, no amount of automatic retrying fixes a machine that's powered off. So a simple, observable, manually-recoverable design is the right trade-off there, not a limitation, a deliberate choice given what actually breaks.
+
+-----------------------------------------------------------------------------------------------------------------
+
+Idea 3-
+
+upon failure adding delete activity then copy activity still works but not a good approach
+
+----------------------------------------------------------------------------------------------------------------
+
+NOTE:if incase we use the file name with date usually we get with same name and we just concatenate with date then automatically adf itself over writes
+-----------------------------------------------------------------------------------------------------------------
