@@ -47,7 +47,7 @@ ForEach (loop every file, batchCount = MORE THAN DEFAULT)
 ---------------------------------------								 
 Technique 2:For incremental load(files)
 ---------------------------------------
-FLOW:
+FLOW:USING ARCHEIVE 
 [Get Metadata: list files in landing/]
         ↓
 [ForEach file]
