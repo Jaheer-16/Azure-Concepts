@@ -1,0 +1,43 @@
+-------------------
+Full load for files
+-------------------
+
+we use Get Metadata activity to get that metadata of the landing zone after that we use for each activity in that
+we explicitly un-check the sequential loop because since we are doing full load we need more parallelism ,with sequential check only one file will get at a time other will be in queue, So we explicitly increase batch count
+and yes of course inside we use copy activity based on the batch count copy activity will perform the copy
+
+explanation:-
+"For a full load of files, I use a Get Metadata activity with a wildcard path to list every file in the landing zone, since full load means processing everything, not just what's new. That feeds into a ForEach activity, and I explicitly uncheck Sequential, because by default ForEach processes one file at a time, with the rest waiting in queue, which would be slow for a full load given the larger volume involved. Instead, I set a higher batch count, so multiple files copy in parallel, each iteration of the loop running its own Copy activity, and the batch count determines how many of those run simultaneously."
+
+
+[Get Metadata: list ALL files, wildcard path across all folders]
+        ↓
+[ForEach: Sequential = false, Batch count = 10–20 (or higher, up to 50)]
+        ↓
+    [Copy activity: landing/{file} → staging, sink Copy behavior = Overwrite]
+        ↓ (success)
+    [Stored Procedure (optional): log file_name, 'Loaded', 'FULL', timestamp]
+
+
+----------------------
+Full load for Database
+----------------------
+
+For database full load to adlsgen2 then adf supports the "source partitiong" in copy activity ,here we need to select whether dynamic range or physical partitiong
+dynamic range-we will set boundarys(start,end) then we select parallelism number as well
+physical-database is already partioned based on the date or others[in that case adf will automatically understands how to divide data by selecting this option]
+
+
+----------------------------------------------------------------------------------------------------------------
+STAGING IN Copy Activity
+NOTE:
+"Without staging, ADF loads into Synapse via a standard batched insert over the SQL connection. With staging enabled, the data lands in Blob Storage first, and Synapse loads it using PolyBase or the COPY statement, which reads the files in parallel across multiple compute nodes, this parallel, file-based loading is what makes it significantly faster for large volumes, not simply 'fewer round trips.'"
+
+CORE CONCEPT OF STAGING IN Copy Activity
+
+"Without staging, we can still copy, but if data is large we get benefits of parallelism by enabling it" — Correct, that's exactly the trade-off. Small/medium volumes work fine without staging. Large volumes benefit significantly from staging's parallel load path.
+
+"If we enable staging, data first reaches ADLS Gen2 at a provided path, and it's temporary, automatically cleaned up once done" — Correct. You specify a Blob Storage linked service and folder path when enabling staging, ADF writes the data there temporarily, and cleans those files up automatically after the load into Synapse completes. You don't manage or clean this yourself.
+
+"Then Synapse pulls the data in parallel, and it's easier for Synapse as well" — Correct. Once the data is sitting as files, Synapse's PolyBase/COPY mechanism reads across multiple compute nodes in parallel, and loading from files this way is inherently more efficient for Synapse's distributed architecture than absorbing a stream of batched inserts over a SQL connection.
+---------------------------------------------------------------------------------------------------------------
