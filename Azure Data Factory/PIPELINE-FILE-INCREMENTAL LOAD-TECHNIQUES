@@ -1,0 +1,103 @@
+PIPELINE-CSV-INCREMENTAL LOAD
+----------------------------------------
+Technique 1 :For incremental load(files)
+----------------------------------------
+Pipeline steps
+
+Step 1: Get Metadata activity
+
+Points to the landing zone folder.
+Setting: Field list = Child Items (this lists every file in the folder, with names).
+Output: a list of ALL files currently sitting in landing zone (old + new).
+
+Step 2: Lookup activity
+
+Runs a query on file_watermark table: SELECT file_name FROM file_watermark WHERE load_status = 'Loaded'
+Output: list of file names already processed.
+
+Step 3: Filter activity
+
+Compares the two lists.
+Condition: keep only files from Step 1 whose name is NOT in the list from Step 2.
+Output: only the new/unprocessed files.
+
+Step 4: ForEach activity
+
+Loops over the filtered (new) file list.
+Inside the loop:
+Copy Activity → copies that one file from landing zone → processing/staging zone (or directly to Synapse/SQL).
+Stored Procedure activity → inserts a row into file_watermark table: (file_name, 'Loaded', current_timestamp)
+
+Step 5 (optional but recommended): Alert/Log
+
+If any file fails in the ForEach, log it separately (don't mark as "Loaded") so it gets picked up automatically next run since it's still "new" from the checklist's point of view.
+
+PIPELINE-CSV-INCREMENTAL-FULL LOAD
+
+Get Metadata (list ALL files, all date folders — wildcard path)
+        |
+        v
+ForEach (loop every file, batchCount = MORE THAN DEFAULT)
+        |
+        ├── Copy Activity → file goes to staging area
+        |
+        └── Stored Procedure → insert file_name into control table
+                                 (load_status='Loaded', load_type='FULL')
+								 
+---------------------------------------								 
+Technique 2:For incremental load(files)
+---------------------------------------
+FLOW:
+[Get Metadata: list files in landing/]
+        ↓
+[ForEach file]
+    ├─ [Copy #1: landing/{file} → staging/Synapse]
+    ├─ [Copy #2: landing/{file} → archive/{file}]
+    ├─ [Delete: landing/{file}]                          ← only after both copies succeed
+    └─ [Databricks Notebook: base parameters = file_name (@item().name), run_id (@pipeline().RunId)]
+
+"Get Metadata activity, with that we get details of file" — Correct. It lists the files currently sitting in the landing folder (Child Items).
+
+"After that, ForEach activity, inside I use 2 Copy activities, one is to pull data from landing zone and other one is to archive zone" — Correct. Both Copy activities read the source from landing/{file}:
+
+Copy #1: landing/{file} → staging/Synapse (the real data load).
+Copy #2: landing/{file} → archive/{file} (the backup/history copy).
+
+"After that I add Delete activity for the landing zone" — Correct. Delete removes the file from landing/ only, and this should run after both Copy activities succeed (connected via green/success dependencies), so you never delete a file that wasn't fully processed and backed up yet.
+
+"So every time we get new files only" — Correct. Since processed files are removed from landing, whatever Get Metadata lists next run is automatically only the new, unprocessed ones. No comparison logic needed.
+
+"Whenever we run pipeline, we give pipeline name/id, with data to process that file alone, until the end of pipeline, passing through notebook base parameters" — Correct. Inside the ForEach, @item().name is the current file, and you pass it (along with @pipeline().RunId if useful for traceability) into the Databricks Notebook activity's Base parameters, so the notebook processes exactly that one file, and every step downstream can be traced back to a specific file and a specific pipeline run.
+
+---------------------------------------
+Technique 3:For incremental load(files)
+---------------------------------------
+
+FLOW:
+[Lookup: read watermark.json from ADLS Gen2 → gives last_run_time]
+        ↓
+[Get Metadata: childItems, with "Last Modified" in the field list]
+        ↓
+[Filter: item().lastModified > lookup output]
+        ↓
+[ForEach: loop over filtered files]
+        ↓
+    [Copy activity: process that file]
+        ↓
+[Copy/overwrite: write the new watermark value back to watermark.json]
+
+Lookup on a JSON file (not a database in adlsgen2) → Get Metadata for file timestamps → Filter comparing timestamps → ForEach with Copy per file → write the new watermark back at the end
+
+NOTE:
+i will use databricks notebook to write the json file at end to the adlsgen2  by using this code :
+
+import json
+watermark = {"last_run_time":timestamp}   # computed from the batch you just processed
+
+dbutils.fs.put(
+    "abfss://landing@storageacct.dfs.core.windows.net/_control/watermark.json",
+    json.dumps(watermark),
+    overwrite=True
+)
+
+if we need audit like table then create dataframe at end and save it as delta table then use it
