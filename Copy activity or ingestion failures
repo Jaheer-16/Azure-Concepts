@@ -45,3 +45,12 @@ upon failure adding delete activity then copy activity still works but not a goo
 
 NOTE:if incase we use the file name with date usually we get with same name and we just concatenate with date then automatically adf itself over writes
 -----------------------------------------------------------------------------------------------------------------
+
+until activity:
+"We are using dependencies for the Copy activity" — Correct. ADF activities have built-in output paths: On Success and On Failure. We attach the next activity to whichever path applies, that's the "dependency."
+
+"Upon fail, we use Set Variable to increment the pipeline variable attempt" — Correct. On Copy's failure path, a Set Variable activity runs attempt = @add(variables('attempt'), 1).
+
+"Upon success, we set success to true using Set Variable" — Correct. On Copy's success path, a separate Set Variable activity runs success = true.
+
+"If Until activity gets true, it will stop, otherwise it will run 3 attempts" — Correct. Until re-evaluates its expression after every iteration
